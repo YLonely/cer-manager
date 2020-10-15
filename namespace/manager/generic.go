@@ -7,19 +7,12 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/YLonely/cr-daemon/namespace"
 	log "github.com/sirupsen/logrus"
 )
 
-type NSType int
-
-const (
-	IPCNS NSType = iota
-	MountNS
-	UTSNS
-)
-
-func newGenericNSManager(capacity int, t NSType) (*genericNSManager, error) {
-	if capacity <= 0 {
+func newGenericNSManager(capacity int, t namespace.NamespaceType) (*genericNSManager, error) {
+	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
 	manager := &genericNSManager{
@@ -39,7 +32,7 @@ type genericNSManager struct {
 	usedNS   []int
 	unusedNS []int
 	m        sync.Mutex
-	t        NSType
+	t        namespace.NamespaceType
 }
 
 var _ NSManager = &genericNSManager{}
