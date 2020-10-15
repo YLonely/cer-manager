@@ -1,4 +1,4 @@
-package manager
+package namespace
 
 type NSManager interface {
 	Get() (int, int, interface{}, error)

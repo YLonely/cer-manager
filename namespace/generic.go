@@ -1,17 +1,15 @@
-package manager
+package namespace
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"syscall"
 
-	"github.com/YLonely/cr-daemon/namespace"
-	log "github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 )
 
-func newGenericNSManager(capacity int, t namespace.NamespaceType) (*genericNSManager, error) {
+func newGenericNSManager(capacity int, t NamespaceType) (*genericNSManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
@@ -32,7 +30,7 @@ type genericNSManager struct {
 	usedNS   []int
 	unusedNS []int
 	m        sync.Mutex
-	t        namespace.NamespaceType
+	t        NamespaceType
 }
 
 var _ NSManager = &genericNSManager{}
@@ -50,13 +48,13 @@ func (m *genericNSManager) Update(config interface{}) error {
 }
 
 func (m *genericNSManager) CleanUp() error {
-	return nil
+	var err error
+
 }
 
-func (m *genericNSManager) init() error {
+func (m *genericNSManager) init() (err error) {
 	var flag int
-	var oldNSFd int
-	var err error
+	var oldNSFd, newNSFd int
 	if flag, err = nsFlag(m.t); err != nil {
 		return err
 	}
@@ -64,41 +62,49 @@ func (m *genericNSManager) init() error {
 		return err
 	}
 	defer func() {
-		if err = syscall.Close(oldNSFd); err != nil {
-			log.Fatal(err)
+		if err != nil {
+			if errClean := m.CleanUp(); errClean != nil {
+				err = errors.Wrap(err, errClean.Error())
+			}
+		}
+		if errClose := syscall.Close(oldNSFd); errClose != nil {
+			err = errors.Wrap(err, errClose.Error())
 		}
 	}()
 	for i := 0; i < m.capacity; i++ {
 		if err = syscall.Unshare(flag); err != nil {
-			m.CleanUp()
 			return err
 		}
+		if newNSFd, err = openNSFd(m.t); err != nil {
+			return err
+		} else {
+			m.unusedNS = append(m.unusedNS, newNSFd)
+		}
 	}
-
-	return nil
+	return err
 }
 
-func nsFlag(t NSType) (int, error) {
+func nsFlag(t NamespaceType) (int, error) {
 	switch t {
-	case IPCNS:
+	case IPC:
 		return syscall.CLONE_NEWIPC, nil
-	case UTSNS:
+	case UTS:
 		return syscall.CLONE_NEWUTS, nil
-	case MountNS:
+	case MNT:
 		return syscall.CLONE_NEWNS, nil
 	default:
 		return -1, errors.New("invalid ns type")
 	}
 }
 
-func openNSFd(t NSType) (int, error) {
+func openNSFd(t NamespaceType) (int, error) {
 	var nsFileName string
 	switch t {
-	case IPCNS:
+	case IPC:
 		nsFileName = "ipc"
-	case UTSNS:
+	case UTS:
 		nsFileName = "uts"
-	case MountNS:
+	case MNT:
 		nsFileName = "mnt"
 	default:
 		return -1, errors.New("invalid ns type")

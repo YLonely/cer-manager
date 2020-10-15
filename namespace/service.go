@@ -25,7 +25,7 @@ const (
 
 type GetNamespaceRequest struct {
 	T   NamespaceType
-	Arg string
+	Arg interface{}
 }
 
 type PutNamespaceRequest struct {

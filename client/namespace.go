@@ -9,7 +9,7 @@ import (
 	"github.com/YLonely/cr-daemon/utils"
 )
 
-func (client *Client) GetNamespace(t namespace.NamespaceType, arg string) (int, int, error) {
+func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (int, int, error) {
 	if err := utils.Send(client.c, []byte(namespace.MethodGetNamespace)); err != nil {
 		return -1, -1, err
 	}
