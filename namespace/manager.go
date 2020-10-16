@@ -1,7 +1,7 @@
 package namespace
 
-type NSManager interface {
-	Get() (int, int, interface{}, error)
+type namespaceManager interface {
+	Get(arg interface{}) (int, int, error)
 	Put(int) error
 	Update(interface{}) error
 	CleanUp() error

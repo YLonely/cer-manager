@@ -3,21 +3,25 @@ package namespace
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 )
 
-func newGenericNSManager(capacity int, t NamespaceType) (*genericNSManager, error) {
+func newGenericNamespaceManager(capacity int, t NamespaceType, postUnshareHook func() error) (*genericNamespaceManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
-	manager := &genericNSManager{
+	manager := &genericNamespaceManager{
 		capacity: capacity,
-		usedNS:   make([]int, 0, capacity),
-		unusedNS: make([]int, 0, capacity),
+		usedNS:   map[int]int{},
+		unusedNS: map[int]int{},
 		t:        t,
+		id:       0,
+		hook:     postUnshareHook,
 	}
 	if err := manager.init(); err != nil {
 		return nil, err
@@ -25,45 +29,101 @@ func newGenericNSManager(capacity int, t NamespaceType) (*genericNSManager, erro
 	return manager, nil
 }
 
-type genericNSManager struct {
+type genericNamespaceManager struct {
 	capacity int
-	usedNS   []int
-	unusedNS []int
+	usedNS   map[int]int
+	unusedNS map[int]int
+	id       int
 	m        sync.Mutex
 	t        NamespaceType
+	hook     func() error
 }
 
-var _ NSManager = &genericNSManager{}
+var _ namespaceManager = &genericNamespaceManager{}
 
-func (m *genericNSManager) Get() (int, int, interface{}, error) {
-	return 0, 0, nil, nil
+func (mgr *genericNamespaceManager) Get(interface{}) (int, int, error) {
+	mgr.m.Lock()
+	defer mgr.m.Unlock()
+	if len(mgr.unusedNS) > 0 {
+		for id, fd := range mgr.unusedNS {
+			delete(mgr.unusedNS, id)
+			mgr.usedNS[id] = fd
+			return id, fd, nil
+		}
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	flag, _ := nsFlag(mgr.t)
+	newNSFd, err := mgr.createNewNamespace(flag)
+	if err != nil {
+		return -1, -1, errors.Wrap(err, "failed to get namespace type:"+string(mgr.t))
+	}
+	mgr.usedNS[mgr.id] = newNSFd
+	mgr.id++
+	return mgr.id - 1, newNSFd, nil
 }
 
-func (m *genericNSManager) Put(id int) error {
+func (mgr *genericNamespaceManager) Put(id int) error {
+	mgr.m.Lock()
+	defer mgr.m.Unlock()
+	if fd, exists := mgr.usedNS[id]; !exists {
+		return errors.Errorf("%d does not exists", id)
+	} else {
+		delete(mgr.usedNS, id)
+		mgr.unusedNS[id] = fd
+	}
 	return nil
 }
 
-func (m *genericNSManager) Update(config interface{}) error {
+func (mgr *genericNamespaceManager) Update(config interface{}) error {
 	return nil
 }
 
-func (m *genericNSManager) CleanUp() error {
+func (mgr *genericNamespaceManager) CleanUp() error {
 	var err error
-
+	fds := make([]int, 0, mgr.capacity)
+	for _, fd := range mgr.usedNS {
+		fds = append(fds, fd)
+	}
+	for _, fd := range mgr.unusedNS {
+		fds = append(fds, fd)
+	}
+	for _, fd := range fds {
+		if errClose := syscall.Close(fd); errClose != nil {
+			err = errors.Wrap(errClose, "failed to clean up")
+		}
+	}
+	return err
 }
 
-func (m *genericNSManager) init() (err error) {
+func (mgr *genericNamespaceManager) reduce() {
+	mgr.m.Lock()
+	defer mgr.m.Unlock()
+	diff := len(mgr.unusedNS) + len(mgr.usedNS) - mgr.capacity
+	ids := []int{}
+	for id, _ := range mgr.unusedNS {
+		ids = append(ids, id)
+	}
+	for i := 0; i < diff && i < len(ids); i++ {
+		syscall.Close(mgr.unusedNS[ids[i]])
+		delete(mgr.unusedNS, ids[i])
+	}
+}
+
+func (mgr *genericNamespaceManager) init() (err error) {
 	var flag int
 	var oldNSFd, newNSFd int
-	if flag, err = nsFlag(m.t); err != nil {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if flag, err = nsFlag(mgr.t); err != nil {
 		return err
 	}
-	if oldNSFd, err = openNSFd(m.t); err != nil {
+	if oldNSFd, err = openNSFd(mgr.t); err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
-			if errClean := m.CleanUp(); errClean != nil {
+			if errClean := mgr.CleanUp(); errClean != nil {
 				err = errors.Wrap(err, errClean.Error())
 			}
 		}
@@ -71,17 +131,29 @@ func (m *genericNSManager) init() (err error) {
 			err = errors.Wrap(err, errClose.Error())
 		}
 	}()
-	for i := 0; i < m.capacity; i++ {
-		if err = syscall.Unshare(flag); err != nil {
-			return err
-		}
-		if newNSFd, err = openNSFd(m.t); err != nil {
+	for i := 0; i < mgr.capacity; i++ {
+		if newNSFd, err = mgr.createNewNamespace(flag); err != nil {
 			return err
 		} else {
-			m.unusedNS = append(m.unusedNS, newNSFd)
+			mgr.unusedNS[mgr.id] = newNSFd
+			mgr.id++
 		}
 	}
+	//return back to the old ns
+	err = unix.Setns(oldNSFd, flag)
 	return err
+}
+
+func (mgr *genericNamespaceManager) createNewNamespace(flag int) (int, error) {
+	if err := syscall.Unshare(flag); err != nil {
+		return -1, err
+	}
+	if mgr.hook != nil {
+		if err := mgr.hook(); err != nil {
+			return -1, err
+		}
+	}
+	return openNSFd(mgr.t)
 }
 
 func nsFlag(t NamespaceType) (int, error) {
