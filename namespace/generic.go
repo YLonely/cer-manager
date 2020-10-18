@@ -5,7 +5,6 @@ import (
 	"os"
 	"runtime"
 	"sync"
-	"syscall"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
@@ -41,26 +40,46 @@ type genericNamespaceManager struct {
 
 var _ namespaceManager = &genericNamespaceManager{}
 
-func (mgr *genericNamespaceManager) Get(interface{}) (int, int, error) {
+func (mgr *genericNamespaceManager) Get(interface{}) (id int, newNSFd int, err error) {
+	var oldNSFd int
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	if len(mgr.unusedNS) > 0 {
-		for id, fd := range mgr.unusedNS {
+		for id, newNSFd = range mgr.unusedNS {
 			delete(mgr.unusedNS, id)
-			mgr.usedNS[id] = fd
-			return id, fd, nil
+			mgr.usedNS[id] = newNSFd
+			return
 		}
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	flag, _ := nsFlag(mgr.t)
-	newNSFd, err := mgr.createNewNamespace(flag)
+	if oldNSFd, err = openNSFd(mgr.t); err != nil {
+		return
+	}
+	defer func() {
+		if errClose := unix.Close(oldNSFd); errClose != nil {
+			if err != nil {
+				err = errors.Wrap(err, errClose.Error())
+			} else {
+				err = errClose
+			}
+		}
+	}()
+	newNSFd, err = mgr.createNewNamespace(flag)
+	if newNSFd != -1 {
+		if err = unix.Setns(oldNSFd, flag); err != nil {
+			return
+		}
+	}
 	if err != nil {
-		return -1, -1, errors.Wrap(err, "failed to get namespace type:"+string(mgr.t))
+		err = errors.Wrap(err, "failed to get namespace type:"+string(mgr.t))
+		return
 	}
 	mgr.usedNS[mgr.id] = newNSFd
+	id = mgr.id
 	mgr.id++
-	return mgr.id - 1, newNSFd, nil
+	return
 }
 
 func (mgr *genericNamespaceManager) Put(id int) error {
@@ -82,6 +101,8 @@ func (mgr *genericNamespaceManager) Update(config interface{}) error {
 func (mgr *genericNamespaceManager) CleanUp() error {
 	var err error
 	fds := make([]int, 0, mgr.capacity)
+	mgr.m.Lock()
+	defer mgr.m.Unlock()
 	for _, fd := range mgr.usedNS {
 		fds = append(fds, fd)
 	}
@@ -89,7 +110,7 @@ func (mgr *genericNamespaceManager) CleanUp() error {
 		fds = append(fds, fd)
 	}
 	for _, fd := range fds {
-		if errClose := syscall.Close(fd); errClose != nil {
+		if errClose := unix.Close(fd); errClose != nil {
 			err = errors.Wrap(errClose, "failed to clean up")
 		}
 	}
@@ -105,7 +126,7 @@ func (mgr *genericNamespaceManager) reduce() {
 		ids = append(ids, id)
 	}
 	for i := 0; i < diff && i < len(ids); i++ {
-		syscall.Close(mgr.unusedNS[ids[i]])
+		unix.Close(mgr.unusedNS[ids[i]])
 		delete(mgr.unusedNS, ids[i])
 	}
 }
@@ -116,10 +137,10 @@ func (mgr *genericNamespaceManager) init() (err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	if flag, err = nsFlag(mgr.t); err != nil {
-		return err
+		return
 	}
 	if oldNSFd, err = openNSFd(mgr.t); err != nil {
-		return err
+		return
 	}
 	defer func() {
 		if err != nil {
@@ -127,13 +148,17 @@ func (mgr *genericNamespaceManager) init() (err error) {
 				err = errors.Wrap(err, errClean.Error())
 			}
 		}
-		if errClose := syscall.Close(oldNSFd); errClose != nil {
-			err = errors.Wrap(err, errClose.Error())
+		if errClose := unix.Close(oldNSFd); errClose != nil {
+			if err != nil {
+				err = errors.Wrap(err, errClose.Error())
+			} else {
+				err = errClose
+			}
 		}
 	}()
 	for i := 0; i < mgr.capacity; i++ {
 		if newNSFd, err = mgr.createNewNamespace(flag); err != nil {
-			return err
+			return
 		} else {
 			mgr.unusedNS[mgr.id] = newNSFd
 			mgr.id++
@@ -141,29 +166,38 @@ func (mgr *genericNamespaceManager) init() (err error) {
 	}
 	//return back to the old ns
 	err = unix.Setns(oldNSFd, flag)
-	return err
+	return
 }
 
 func (mgr *genericNamespaceManager) createNewNamespace(flag int) (int, error) {
-	if err := syscall.Unshare(flag); err != nil {
+	var err error
+	if err = unix.Unshare(flag); err != nil {
 		return -1, err
 	}
 	if mgr.hook != nil {
-		if err := mgr.hook(); err != nil {
-			return -1, err
+		if err = mgr.hook(); err != nil {
+			err = errors.Wrap(err, "failed to execute the hook")
 		}
 	}
-	return openNSFd(mgr.t)
+	fd, errOpen := openNSFd(mgr.t)
+	if errOpen != nil {
+		if err != nil {
+			err = errors.Wrap(err, errOpen.Error())
+		} else {
+			err = errOpen
+		}
+	}
+	return fd, err
 }
 
 func nsFlag(t NamespaceType) (int, error) {
 	switch t {
 	case IPC:
-		return syscall.CLONE_NEWIPC, nil
+		return unix.CLONE_NEWIPC, nil
 	case UTS:
-		return syscall.CLONE_NEWUTS, nil
+		return unix.CLONE_NEWUTS, nil
 	case MNT:
-		return syscall.CLONE_NEWNS, nil
+		return unix.CLONE_NEWNS, nil
 	default:
 		return -1, errors.New("invalid ns type")
 	}
