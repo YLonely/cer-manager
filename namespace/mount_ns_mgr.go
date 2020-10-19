@@ -1,18 +1,113 @@
 package namespace
 
 import (
+	"io/ioutil"
 	"os"
 	"path"
+	"runtime"
 	"strings"
+	"sync"
+
+	"github.com/pkg/errors"
 
 	"golang.org/x/sys/unix"
 )
 
-func newMountNamespaceManager(capacity int, roots []string) (*namespaceManager, error) {
+func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, error) {
+	if capacity < 0 || len(roots) == 0 {
+		return nil, errors.New("invalid init arguments")
+	}
+	nsMgr := &mountNamespaceManager{
+		mgrs: map[string]*subManager{},
+	}
+	offset := 0
+	for _, root := range roots {
+		root = strings.TrimSuffix(root, "/")
+		nsMgr.mgrs[root] = &subManager{
+			offset:       offset,
+			mountedRoots: []string{},
+			usedRoots:    map[int]string{},
+		}
+		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeMountHook(root)); err != nil {
+			return nil, err
+		} else {
+			nsMgr.mgrs[root].mgr = mgr
+		}
+		offset++
+	}
+	return nsMgr, nil
 }
 
+var _ namespaceManager = &mountNamespaceManager{}
+
 type mountNamespaceManager struct {
-	mgrs map[string]*genericNamespaceManager
+	mgrs     map[string]*subManager
+	rootsFds map[int]string
+}
+
+type subManager struct {
+	mgr          *genericNamespaceManager
+	offset       int
+	usedRoots    map[int]string
+	mountedRoots []string
+	mutex        sync.Mutex
+}
+
+func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, error) {
+	root := arg.(string)
+	root = strings.TrimSuffix(root, "/")
+	if sub, exists := mgr.mgrs[root]; exists {
+		id, fd, _, err := sub.mgr.Get(nil)
+		if err != nil {
+			return -1, -1, nil, errors.Wrap(err, "root "+root)
+		}
+		retID := id*len(mgr.mgrs) + sub.offset
+		sub.mutex.Lock()
+		defer sub.mutex.Unlock()
+		l := len(sub.mountedRoots)
+		if l == 0 {
+			panic("The number of the namespace and rootfs didn't match")
+		}
+		retRoot := sub.mountedRoots[l-1]
+		sub.mountedRoots = sub.mountedRoots[:l-1]
+		sub.usedRoots[id] = retRoot
+		return retID, fd, retRoot, nil
+	}
+	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", root)
+}
+
+func (mgr *mountNamespaceManager) Put(id int) error {
+	offset := id % len(mgr.mgrs)
+	for _, sub := range mgr.mgrs {
+		if sub.offset == offset {
+			innerID := id / len(mgr.mgrs)
+			if err := sub.mgr.Put(innerID); err != nil {
+				return err
+			}
+			sub.mutex.Lock()
+			defer sub.mutex.Unlock()
+			if root, exists := sub.usedRoots[innerID]; !exists {
+				panic("Rootfs %d isn't in use in mnt ns manager")
+			} else {
+				delete(sub.usedRoots, innerID)
+				sub.mountedRoots = append(sub.mountedRoots, root)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+func (mgr *mountNamespaceManager) Update(interface{}) error {
+	return nil
+}
+
+func (mgr *mountNamespaceManager) CleanUp() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for fd, root := range mgr.rootsFds {
+
+	}
 }
 
 type mount struct {
@@ -109,27 +204,47 @@ var maskedPaths = []string{
 	"/proc/scsi",
 }
 
-func makeMountHook(root string) func() error {
-	return func() error {
-		return prepareRootfs(root)
+func depopulateRootfs(root string) error {
+	var err error
+	path := append(readonlyPaths, maskedPaths...)
+	for _, m := range mounts {
+		path = append(path, m.dest)
+	}
+
+}
+
+func (mgr *mountNamespaceManager) makeMountHook(root string) func(int, int) error {
+	return func(oldNS, newNS int) error {
+		return mgr.prepareRootfs(root, newNS)
 	}
 }
 
-func prepareRootfs(root string) error {
+func (mgr *mountNamespaceManager) prepareRootfs(root string, newNS int) error {
 	//isolate the root
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return err
+	}
+	//create a temp dir and mount it
+	tempDir, err := ioutil.TempDir("", ".crdaemon.rootfs.*")
+	if err != nil {
+		return err
+	}
+	if err = unix.Mount(root, tempDir, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+		return err
+	}
+	if err = unix.Mount("", tempDir, "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
 		return err
 	}
 	//mount general fs
 	for _, m := range mounts {
 		flags, data := parseMountOptions(m.options)
-		if err := unix.Mount(m.src, path.Join(root, m.dest), m.mtype, uintptr(flags), data); err != nil {
+		if err := unix.Mount(m.src, path.Join(tempDir, m.dest), m.mtype, uintptr(flags), data); err != nil {
 			return err
 		}
 	}
 	//make readonly paths
 	for _, p := range readonlyPaths {
-		joinedPath := path.Join(root, p)
+		joinedPath := path.Join(tempDir, p)
 		if err := unix.Mount(joinedPath, joinedPath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 			if !os.IsNotExist(err) {
 				return err
@@ -138,7 +253,7 @@ func prepareRootfs(root string) error {
 	}
 	//make masked paths
 	for _, p := range maskedPaths {
-		joinedPath := path.Join(root, p)
+		joinedPath := path.Join(tempDir, p)
 		if err := unix.Mount("/dev/null", joinedPath, "", unix.MS_BIND, ""); err != nil && !os.IsNotExist(err) {
 			if err == unix.ENOTDIR {
 				if err = unix.Mount("tmpfs", joinedPath, "tmpfs", unix.MS_RDONLY, ""); err != nil {
@@ -147,6 +262,9 @@ func prepareRootfs(root string) error {
 			}
 		}
 	}
+	sub := mgr.mgrs[root]
+	sub.mountedRoots = append(sub.mountedRoots, tempDir)
+	mgr.rootsFds[newNS] = tempDir
 	return nil
 }
 

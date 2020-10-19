@@ -37,6 +37,7 @@ type GetNamespaceResponse struct {
 	NSId int
 	Pid  int
 	Fd   int
+	Info interface{}
 }
 
 func NewNamespaceService(root string) (service.Service, error) {
