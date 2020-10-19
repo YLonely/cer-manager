@@ -105,9 +105,33 @@ func (mgr *mountNamespaceManager) Update(interface{}) error {
 func (mgr *mountNamespaceManager) CleanUp() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	for fd, root := range mgr.rootsFds {
-
+	oldNSFd, err := openNSFd(MNT)
+	if err != nil {
+		return err
 	}
+	for fd, root := range mgr.rootsFds {
+		if err = unix.Setns(fd, unix.CLONE_NEWNS); err != nil {
+			continue
+		}
+		err = depopulateRootfs(root)
+	}
+	if errSet := unix.Setns(oldNSFd, unix.CLONE_NEWNS); errSet != nil {
+		if err != nil {
+			err = errors.Wrap(err, errSet.Error())
+		} else {
+			err = errSet
+		}
+	}
+	for _, sub := range mgr.mgrs {
+		if errClean := sub.mgr.CleanUp(); errClean != nil {
+			if err != nil {
+				err = errors.Wrap(err, errClean.Error())
+			} else {
+				err = errClean
+			}
+		}
+	}
+	return err
 }
 
 type mount struct {
@@ -206,11 +230,18 @@ var maskedPaths = []string{
 
 func depopulateRootfs(root string) error {
 	var err error
-	path := append(readonlyPaths, maskedPaths...)
-	for _, m := range mounts {
-		path = append(path, m.dest)
+	paths := append(readonlyPaths, maskedPaths...)
+	for i := len(mounts) - 1; i >= 0; i-- {
+		paths = append(paths, mounts[i].dest)
 	}
-
+	for _, p := range paths {
+		joinedPath := path.Join(root, p)
+		err = unix.Unmount(joinedPath, unix.MNT_DETACH)
+	}
+	if err = unix.Unmount(root, unix.MNT_DETACH); err != nil {
+		return err
+	}
+	return os.Remove(root)
 }
 
 func (mgr *mountNamespaceManager) makeMountHook(root string) func(int, int) error {
