@@ -6,15 +6,15 @@ import (
 	"net"
 )
 
-type ServiceType int
+type ServiceType uint8
 
 const (
-	ServiceTypePrefixLen int    = 2
-	ServiceTypeMax       uint16 = math.MaxUint16
+	ServiceTypePrefixLen int   = 1
+	ServiceTypeMax       uint8 = math.MaxUint8
 )
 
 const (
-	NamespaceService ServiceType = iota
+	NamespaceService ServiceType = iota + 10
 )
 
 type Service interface {

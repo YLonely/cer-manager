@@ -1,9 +1,11 @@
 package namespace
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"net"
 	"os"
 
 	"github.com/YLonely/cr-daemon/service"
@@ -58,8 +60,20 @@ func NewNamespaceService(root string) (service.Service, error) {
 	} else if err != os.ErrNotExist {
 		return nil, err
 	}
-	ns := []NamespaceType{IPC, UTS, MNT}
-
+	svr := &namespaceService{
+		managers: map[NamespaceType]namespaceManager{},
+	}
+	var err error
+	if svr.managers[UTS], err = newUTSNamespaceManager(config.Capacity[UTS]); err != nil {
+		return nil, err
+	}
+	if svr.managers[IPC], err = newIPCNamespaceManager(config.Capacity[IPC]); err != nil {
+		return nil, err
+	}
+	if svr.managers[MNT], err = newMountNamespaceManager(config.Capacity[MNT], config.ExtraArgs[MNT]); err != nil {
+		return nil, err
+	}
+	return svr, nil
 }
 
 type namespaceService struct {
@@ -68,9 +82,25 @@ type namespaceService struct {
 
 var _ service.Service = &namespaceService{}
 
+func (svr *namespaceService) Init(context.Context) error {
+	return nil
+}
+
+func (svr *namespaceService) Handle(ctx context.Context, conn net.Conn) error {
+
+}
+
+func (svr *namespaceService) Stop(context.Context) error {
+
+}
+
 type serviceConfig struct {
-	Capacity  map[NamespaceType]int    `json:"capacity"`
-	ExtraArgs map[NamespaceType]string `json:"extra_args"`
+	Capacity  map[NamespaceType]int      `json:"capacity"`
+	ExtraArgs map[NamespaceType][]string `json:"extra_args"`
+}
+
+func handleMethodType(conn net.Conn) (string, error) {
+
 }
 
 func mergeConfig(to, from *serviceConfig) error {
@@ -96,6 +126,6 @@ func defaultConfig() serviceConfig {
 			UTS: 5,
 			MNT: 5,
 		},
-		ExtraArgs: map[NamespaceType]string{},
+		ExtraArgs: map[NamespaceType][]string{},
 	}
 }

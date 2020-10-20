@@ -24,9 +24,8 @@ func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, e
 	for _, root := range roots {
 		root = strings.TrimSuffix(root, "/")
 		nsMgr.mgrs[root] = &subManager{
-			offset:       offset,
-			mountedRoots: []string{},
-			usedRoots:    map[int]string{},
+			offset:    offset,
+			usedRoots: map[int]string{},
 		}
 		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeMountHook(root)); err != nil {
 			return nil, err
