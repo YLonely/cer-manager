@@ -20,4 +20,5 @@ const (
 type Service interface {
 	Init(context.Context) error
 	Handle(context.Context, net.Conn) error
+	Stop(context.Context) error
 }

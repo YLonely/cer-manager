@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/YLonely/cr-daemon/namespace/manager"
 	"github.com/YLonely/cr-daemon/service"
 )
 
@@ -59,10 +58,12 @@ func NewNamespaceService(root string) (service.Service, error) {
 	} else if err != os.ErrNotExist {
 		return nil, err
 	}
+	ns := []NamespaceType{IPC, UTS, MNT}
+
 }
 
 type namespaceService struct {
-	managers map[NamespaceType]manager.NSManager
+	managers map[NamespaceType]namespaceManager
 }
 
 var _ service.Service = &namespaceService{}
@@ -71,8 +72,6 @@ type serviceConfig struct {
 	Capacity  map[NamespaceType]int    `json:"capacity"`
 	ExtraArgs map[NamespaceType]string `json:"extra_args"`
 }
-
-func (s *namespaceService)
 
 func mergeConfig(to, from *serviceConfig) error {
 	nsTypes := []NamespaceType{IPC, UTS, MNT}
