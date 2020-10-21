@@ -27,6 +27,7 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 	socketPath := path.Join(bundle, "daemon.socket")
+	os.Remove(socketPath)
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
 		return nil, err
@@ -86,4 +87,13 @@ func (s *Server) Start(ctx context.Context) chan error {
 		}
 	}()
 	return errorC
+}
+
+func (s *Server) Shutdown() {
+	s.group.Wait()
+	for t, ss := range s.services {
+		if err := ss.Stop(); err != nil {
+			log.Logger(service.MainService).WithField("serviceType", t).WithError(err).Error()
+		}
+	}
 }

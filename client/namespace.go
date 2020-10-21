@@ -1,7 +1,6 @@
 package client
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,12 +22,8 @@ func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (
 	if err = utils.Send(client.c, data); err != nil {
 		return -1, -1, nil, err
 	}
-	rspJSON, err := utils.Receive(client.c)
-	if err != nil {
-		return -1, -1, nil, err
-	}
 	rsp := namespace.GetNamespaceResponse{}
-	if err := json.Unmarshal(rspJSON, &rsp); err != nil {
+	if err = utils.ReceiveData(client.c, &rsp); err != nil {
 		return -1, -1, nil, err
 	}
 	if rsp.Fd == -1 {
@@ -54,12 +49,8 @@ func (client *Client) PutNamespace(t namespace.NamespaceType, nsID int) error {
 	if err = utils.Send(client.c, data); err != nil {
 		return err
 	}
-	rspJSON, err := utils.Receive(client.c)
-	if err != nil {
-		return err
-	}
 	rsp := namespace.PutNamespaceResponse{}
-	if err = json.Unmarshal(rspJSON, &rsp); err != nil {
+	if err = utils.ReceiveData(client.c, &rsp); err != nil {
 		return err
 	}
 	if rsp.Error != "" {

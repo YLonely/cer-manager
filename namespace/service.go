@@ -89,7 +89,7 @@ type namespaceService struct {
 
 var _ service.Service = &namespaceService{}
 
-func (svr *namespaceService) Init(context.Context) error {
+func (svr *namespaceService) Init() error {
 	log.Logger(service.NamespaceService).Info("Service initialized")
 	return nil
 }
@@ -110,7 +110,7 @@ func (svr *namespaceService) Handle(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (svr *namespaceService) Stop(context.Context) error {
+func (svr *namespaceService) Stop() error {
 	for t, mgr := range svr.managers {
 		err := mgr.CleanUp()
 		if err != nil {
