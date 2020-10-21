@@ -6,19 +6,20 @@ import (
 	"net"
 )
 
-type ServiceType uint8
+type ServiceType uint16
 
 const (
-	ServiceTypePrefixLen int   = 1
-	ServiceTypeMax       uint8 = math.MaxUint8
+	ServiceTypePrefixLen int    = 2
+	ServiceTypeMax       uint16 = math.MaxUint16
 )
 
 const (
-	NamespaceService ServiceType = iota + 10
+	MainService ServiceType = iota + 10
+	NamespaceService
 )
 
 type Service interface {
-	Init(context.Context) error
-	Handle(context.Context, net.Conn) error
+	Init() error
+	Handle(context.Context, net.Conn)
 	Stop(context.Context) error
 }

@@ -5,6 +5,8 @@ import (
 	"net"
 )
 
+const defaultSocketPath = "/var/lib/crdaemon/daemon.socket"
+
 func NewDaemonClient(config Config) (*Client, error) {
 	var c net.Conn
 	var err error
@@ -14,6 +16,12 @@ func NewDaemonClient(config Config) (*Client, error) {
 	return &Client{
 		c: c,
 	}, nil
+}
+
+func NewDefaultClient() (*Client, error) {
+	return NewDaemonClient(Config{
+		SocketPath: defaultSocketPath,
+	})
 }
 
 type Config struct {

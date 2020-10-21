@@ -2,26 +2,25 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/YLonely/cr-daemon/namespace"
+	"github.com/YLonely/cr-daemon/service"
 	"github.com/YLonely/cr-daemon/utils"
 )
 
 func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (int, int, interface{}, error) {
-	if err := utils.Send(client.c, []byte(namespace.MethodGetNamespace)); err != nil {
-		return -1, -1, nil, err
-	}
 	req := namespace.GetNamespaceRequest{
 		T:   t,
 		Arg: arg,
 	}
-	reqJSON, err := json.Marshal(req)
+	data, err := utils.Pack(service.NamespaceService, namespace.MethodGetNamespace, req)
 	if err != nil {
 		return -1, -1, nil, err
 	}
-	if err = utils.Send(client.c, reqJSON); err != nil {
+	if err = utils.Send(client.c, data); err != nil {
 		return -1, -1, nil, err
 	}
 	rspJSON, err := utils.Receive(client.c)
@@ -31,6 +30,9 @@ func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (
 	rsp := namespace.GetNamespaceResponse{}
 	if err := json.Unmarshal(rspJSON, &rsp); err != nil {
 		return -1, -1, nil, err
+	}
+	if rsp.Fd == -1 {
+		return -1, -1, nil, errors.New(rsp.Info.(string))
 	}
 	namespaceFdPath := fmt.Sprintf("/proc/%d/fd/%d", rsp.Pid, rsp.Fd)
 	file, err := os.Open(namespaceFdPath)
@@ -45,12 +47,23 @@ func (client *Client) PutNamespace(t namespace.NamespaceType, nsID int) error {
 		T:  t,
 		ID: nsID,
 	}
-	reqJSON, err := json.Marshal(req)
+	data, err := utils.Pack(service.NamespaceService, namespace.MethodPutNamespace, req)
 	if err != nil {
 		return err
 	}
-	if err = utils.Send(client.c, reqJSON); err != nil {
+	if err = utils.Send(client.c, data); err != nil {
 		return err
+	}
+	rspJSON, err := utils.Receive(client.c)
+	if err != nil {
+		return err
+	}
+	rsp := namespace.PutNamespaceResponse{}
+	if err = json.Unmarshal(rspJSON, &rsp); err != nil {
+		return err
+	}
+	if rsp.Error != "" {
+		return errors.New(rsp.Error)
 	}
 	return nil
 }

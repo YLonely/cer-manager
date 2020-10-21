@@ -26,7 +26,15 @@ func Pack(st service.ServiceType, method string, request interface{}) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-
+	methodBinary, err := WithSizePrefix(method)
+	if err != nil {
+		return nil, err
+	}
+	requestBinary, err := WithSizePrefix(request)
+	if err != nil {
+		return nil, err
+	}
+	return append(svrTypeBinary, append(methodBinary, requestBinary...)...), nil
 }
 
 //WriteBinary writes value to bytes
@@ -38,38 +46,64 @@ func WriteBinary(v interface{}) ([]byte, error) {
 	return data.Bytes(), nil
 }
 
-//WithSizePrefix packs v with prefix of data size
-func WithSizePrefix(v interface{}) error {
-	dataJson, err := json.Marshal(v)
+func SendWithSizePrefix(conn net.Conn, v interface{}) error {
+	data, err := WithSizePrefix(v)
 	if err != nil {
 		return err
 	}
-	l := uint32(len(data))
+	if err = Send(conn, data); err != nil {
+		return err
+	}
+	return nil
+}
+
+//WithSizePrefix packs v with prefix of data size
+func WithSizePrefix(v interface{}) ([]byte, error) {
+	dataJSON, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	l := uint32(len(dataJSON))
 	if l > dataSizeMax {
-		return errors.New("data size is out of range")
+		return nil, errors.New("data size is out of range")
 	}
 	dataPrefix, err := WriteBinary(l)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	data = append(dataPrefix, data...)
-	if n, err := c.Write(data); err != nil || n != len(data) {
+	data := append(dataPrefix, dataJSON...)
+	return data, nil
+}
+
+//Send sends data to a conn
+func Send(c net.Conn, data []byte) error {
+	if n, err := c.Write(data); err != nil {
+		return err
+	} else if n != len(data) {
 		return io.ErrShortWrite
 	}
 	return nil
 }
 
 //Receive data with size prefix
-func Receive(c net.Conn) ([]byte, error) {
+func ReceiveData(c net.Conn, v interface{}) error {
 	var l uint32
 	dataPrefix := make([]byte, dataSizePrefixLen)
 	if _, err := io.ReadFull(c, dataPrefix); err != nil {
-		return nil, err
+		return err
 	}
 	l = binary.BigEndian.Uint32(dataPrefix)
 	data := make([]byte, l)
 	if _, err := io.ReadFull(c, data); err != nil {
-		return nil, err
+		return err
 	}
-	return data, nil
+	return json.Unmarshal(data, v)
+}
+
+func ReceiveServiceType(c net.Conn) (service.ServiceType, error) {
+	data := make([]byte, service.ServiceTypePrefixLen)
+	if _, err := io.ReadFull(c, data); err != nil {
+		return 0, err
+	}
+	return service.ServiceType(binary.BigEndian.Uint16(data)), nil
 }
