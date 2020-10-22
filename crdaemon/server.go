@@ -63,22 +63,7 @@ func (s *Server) Start(ctx context.Context) chan error {
 				errorC <- err
 				return
 			}
-			svrType, err := utils.ReceiveServiceType(conn)
-			if err != nil {
-				conn.Close()
-				errorC <- errors.Wrap(err, "Can't receive service type")
-				return
-			}
-			if svr, exists := s.services[svrType]; !exists {
-				conn.Close()
-				log.Logger(service.MainService).WithField("serviceType", svrType).Error("No such service")
-			} else {
-				go func(c net.Conn) {
-					s.group.Add(1)
-					defer s.group.Done()
-					svr.Handle(ctx, c)
-				}(conn)
-			}
+			go s.serve(ctx, conn, errorC)
 			select {
 			case <-ctx.Done():
 				return
@@ -87,6 +72,30 @@ func (s *Server) Start(ctx context.Context) chan error {
 		}
 	}()
 	return errorC
+}
+
+func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
+	s.group.Add(1)
+	defer s.group.Done()
+	for {
+		svrType, err := utils.ReceiveServiceType(conn)
+		if err != nil {
+			conn.Close()
+			errorC <- errors.Wrap(err, "Can't receive service type")
+			return
+		}
+		if svr, exists := s.services[svrType]; !exists {
+			conn.Close()
+			log.Logger(service.MainService).WithField("serviceType", svrType).Error("No such service")
+		} else {
+			svr.Handle(ctx, conn)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
 }
 
 func (s *Server) Shutdown() {
