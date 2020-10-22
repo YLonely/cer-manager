@@ -3,8 +3,9 @@ package namespace
 import (
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path"
-	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -15,10 +16,11 @@ import (
 
 func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, error) {
 	if capacity < 0 || len(roots) == 0 {
-		return nil, errors.New("invalid init arguments")
+		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
 	nsMgr := &mountNamespaceManager{
-		mgrs: map[string]*subManager{},
+		mgrs:     map[string]*subManager{},
+		rootsFds: map[int]string{},
 	}
 	offset := 0
 	for _, root := range roots {
@@ -102,23 +104,10 @@ func (mgr *mountNamespaceManager) Update(interface{}) error {
 }
 
 func (mgr *mountNamespaceManager) CleanUp() error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	oldNSFd, err := openNSFd(MNT)
-	if err != nil {
-		return err
-	}
+	var err error
 	for fd, root := range mgr.rootsFds {
-		if err = unix.Setns(fd, unix.CLONE_NEWNS); err != nil {
-			continue
-		}
-		err = depopulateRootfs(root)
-	}
-	if errSet := unix.Setns(oldNSFd, unix.CLONE_NEWNS); errSet != nil {
-		if err != nil {
-			err = errors.Wrap(err, errSet.Error())
-		} else {
-			err = errSet
+		if err = depopulateRootfs(fd, root); err != nil {
+			return err
 		}
 	}
 	for _, sub := range mgr.mgrs {
@@ -149,8 +138,8 @@ var mounts = []mount{
 	},
 	{
 		dest:  "/dev",
-		mtype: "tmpfs",
-		src:   "tmpfs",
+		mtype: "devtmpfs",
+		src:   "udev",
 		options: []string{
 			"nosuid",
 			"strictatime",
@@ -227,20 +216,36 @@ var maskedPaths = []string{
 	"/proc/scsi",
 }
 
-func depopulateRootfs(root string) error {
+func depopulateRootfs(fd int, root string) error {
 	var err error
-	paths := append(readonlyPaths, maskedPaths...)
-	for i := len(mounts) - 1; i >= 0; i-- {
-		paths = append(paths, mounts[i].dest)
+	scriptPath := "./scripts/depopulate_rootfs.sh"
+	if _, err = os.Stat(scriptPath); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if err = createScript(scriptPath); err != nil {
+			return err
+		}
 	}
-	for _, p := range paths {
-		joinedPath := path.Join(root, p)
-		err = unix.Unmount(joinedPath, unix.MNT_DETACH)
-	}
-	if err = unix.Unmount(root, unix.MNT_DETACH); err != nil {
+	cmd := exec.Command(scriptPath, strconv.Itoa(os.Getpid()), strconv.Itoa(fd), root)
+	if err = cmd.Run(); err != nil {
 		return err
 	}
 	return os.Remove(root)
+}
+
+func createScript(scriptPath string) error {
+	if err := os.MkdirAll(path.Dir(scriptPath), 0755); err != nil {
+		return err
+	}
+	f, err := os.Create(scriptPath)
+	if err != nil {
+		return err
+	}
+	f.WriteString("#!/bin/sh\npid=$1\nns_fd=$2\nroot=$3\nnsenter --mount=/proc/$pid/fd/$ns_fd umount -Rl $root")
+	f.Close()
+	os.Chmod(scriptPath, 0755)
+	return nil
 }
 
 func (mgr *mountNamespaceManager) makeMountHook(root string) func(int, int) error {

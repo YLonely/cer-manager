@@ -64,7 +64,7 @@ func NewNamespaceService(root string) (service.Service, error) {
 		if err = mergeConfig(&config, &c); err != nil {
 			return nil, err
 		}
-	} else if err != os.ErrNotExist {
+	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
 	svr := &namespaceService{

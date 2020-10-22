@@ -123,9 +123,11 @@ func (mgr *genericNamespaceManager) init() (err error) {
 			mgr.unusedNS[mgr.id] = newNSFd
 			mgr.id++
 		}
+		//return back to the old ns
+		if err = unix.Setns(oldNSFd, flag); err != nil {
+			return
+		}
 	}
-	//return back to the old ns
-	err = unix.Setns(oldNSFd, flag)
 	return
 }
 
