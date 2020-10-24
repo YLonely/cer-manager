@@ -90,7 +90,7 @@ type namespaceService struct {
 var _ service.Service = &namespaceService{}
 
 func (svr *namespaceService) Init() error {
-	log.Logger(service.NamespaceService).Info("Service initialized")
+	log.Logger(service.NamespaceService, "").Info("Service initialized")
 	return nil
 }
 
@@ -98,13 +98,13 @@ func (svr *namespaceService) Handle(ctx context.Context, conn net.Conn) {
 	var methodType string
 	err := utils.ReceiveData(conn, &methodType)
 	if err != nil {
-		log.Logger(service.NamespaceService).WithError(err).Error()
+		log.Logger(service.NamespaceService, "").WithError(err).Error()
 		conn.Close()
 		return
 	}
 	err = svr.handleRequest(methodType, conn)
 	if err != nil {
-		log.Logger(service.NamespaceService).WithError(err).Error()
+		log.Logger(service.NamespaceService, "").WithError(err).Error()
 		conn.Close()
 		return
 	}
@@ -114,7 +114,7 @@ func (svr *namespaceService) Stop() error {
 	for t, mgr := range svr.managers {
 		err := mgr.CleanUp()
 		if err != nil {
-			log.Logger(service.NamespaceService).WithField("namespace", t).Error(err)
+			log.Logger(service.NamespaceService, "").WithField("namespace", t).Error(err)
 		}
 	}
 	return nil
@@ -126,7 +126,7 @@ type serviceConfig struct {
 }
 
 func (svr *namespaceService) handleGetNamespace(conn net.Conn, r GetNamespaceRequest) error {
-	log.Logger(service.NamespaceService).WithField("request", r).Info()
+	log.WithInterface(log.Logger(service.NamespaceService, "GetNamespace"), "request", r).Info()
 	rsp := GetNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Fd = -1
@@ -146,12 +146,12 @@ func (svr *namespaceService) handleGetNamespace(conn net.Conn, r GetNamespaceReq
 	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
 		return err
 	}
-	log.Logger(service.NamespaceService).WithField("response", rsp).Info()
+	log.WithInterface(log.Logger(service.NamespaceService, "GetNamespace"), "response", rsp).Info()
 	return nil
 }
 
 func (svr *namespaceService) handlePutNamespace(conn net.Conn, r PutNamespaceRequest) error {
-	log.Logger(service.NamespaceService).WithField("request", r).Info()
+	log.WithInterface(log.Logger(service.NamespaceService, "PutNamespace"), "request", r).Info()
 	rsp := PutNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Error = "No such namespace"
@@ -164,7 +164,7 @@ func (svr *namespaceService) handlePutNamespace(conn net.Conn, r PutNamespaceReq
 	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
 		return err
 	}
-	log.Logger(service.NamespaceService).WithField("response", rsp).Info()
+	log.WithInterface(log.Logger(service.NamespaceService, "PutNamespace"), "response", rsp).Info()
 	return nil
 }
 

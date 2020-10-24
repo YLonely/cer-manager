@@ -28,14 +28,14 @@ func main() {
 		errorC := s.Start(ctx)
 		signal.Notify(signalC, signals.HandledSignals...)
 		done := signals.HandleSignals(signalC, errorC)
-		log.Logger(service.MainService).Info("Daemon started")
+		log.Logger(service.MainService, "").Info("Daemon started")
 		<-done
 		cancel()
-		log.Logger(service.MainService).Info("Shutting down")
+		log.Logger(service.MainService, "").Info("Shutting down")
 		s.Shutdown()
 		return nil
 	}
 	if err := app.Run(os.Args); err != nil {
-		log.Logger(service.MainService).WithError(err).Error()
+		log.Logger(service.MainService, "").WithError(err).Error()
 	}
 }

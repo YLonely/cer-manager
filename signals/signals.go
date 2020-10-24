@@ -18,9 +18,9 @@ func HandleSignals(signals chan os.Signal, errorC chan error) chan struct{} {
 	go func() {
 		select {
 		case <-signals:
-			log.Logger(service.MainService).Info("Receive a signal")
+			log.Logger(service.MainService, "").Info("Receive a signal")
 		case err := <-errorC:
-			log.Logger(service.MainService).WithError(err).Error()
+			log.Logger(service.MainService, "").WithError(err).Error()
 		}
 		close(done)
 	}()

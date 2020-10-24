@@ -2,6 +2,7 @@ package crdaemon
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"path"
@@ -11,7 +12,6 @@ import (
 	"github.com/YLonely/cr-daemon/namespace"
 	"github.com/YLonely/cr-daemon/service"
 	"github.com/YLonely/cr-daemon/utils"
-	"github.com/pkg/errors"
 )
 
 const bundle = "/var/lib/crdaemon"
@@ -80,13 +80,15 @@ func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
 	for {
 		svrType, err := utils.ReceiveServiceType(conn)
 		if err != nil {
+			if err != io.EOF {
+				log.Logger(service.MainService, "").WithError(err).Error("Can't handle service type")
+			}
 			conn.Close()
-			errorC <- errors.Wrap(err, "Can't receive service type")
 			return
 		}
 		if svr, exists := s.services[svrType]; !exists {
 			conn.Close()
-			log.Logger(service.MainService).WithField("serviceType", svrType).Error("No such service")
+			log.Logger(service.MainService, "").WithField("serviceType", svrType).Error("No such service")
 		} else {
 			svr.Handle(ctx, conn)
 		}
@@ -102,7 +104,7 @@ func (s *Server) Shutdown() {
 	s.group.Wait()
 	for t, ss := range s.services {
 		if err := ss.Stop(); err != nil {
-			log.Logger(service.MainService).WithField("serviceType", t).WithError(err).Error()
+			log.Logger(service.MainService, "").WithField("serviceType", t).WithError(err).Error()
 		}
 	}
 }

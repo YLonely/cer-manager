@@ -218,7 +218,7 @@ var maskedPaths = []string{
 
 func depopulateRootfs(fd int, root string) error {
 	var err error
-	scriptPath := "./scripts/depopulate_rootfs.sh"
+	scriptPath := "/var/lib/crdaemon/scripts/depopulate_rootfs.sh"
 	if _, err = os.Stat(scriptPath); err != nil {
 		if !os.IsNotExist(err) {
 			return err
