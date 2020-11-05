@@ -3,9 +3,10 @@ package client
 import (
 	"context"
 	"net"
-)
+	"path/filepath"
 
-const defaultSocketPath = "/var/lib/crdaemon/daemon.socket"
+	"github.com/YLonely/cr-daemon/crdaemon"
+)
 
 func NewDaemonClient(config Config) (*Client, error) {
 	var c net.Conn
@@ -20,7 +21,7 @@ func NewDaemonClient(config Config) (*Client, error) {
 
 func NewDefaultClient() (*Client, error) {
 	return NewDaemonClient(Config{
-		SocketPath: defaultSocketPath,
+		SocketPath: filepath.Join(crdaemon.DefautlBundlePath, crdaemon.DefaultSocketName),
 	})
 }
 

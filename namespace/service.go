@@ -67,30 +67,31 @@ func NewNamespaceService(root string) (service.Service, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	svr := &namespaceService{
+	return &namespaceService{
+		config:   config,
 		managers: map[NamespaceType]namespaceManager{},
-	}
-	var err error
-	if svr.managers[UTS], err = newUTSNamespaceManager(config.Capacity[UTS]); err != nil {
-		return nil, err
-	}
-	if svr.managers[IPC], err = newIPCNamespaceManager(config.Capacity[IPC]); err != nil {
-		return nil, err
-	}
-	if svr.managers[MNT], err = newMountNamespaceManager(config.Capacity[MNT], config.ExtraArgs[MNT]); err != nil {
-		return nil, err
-	}
-	return svr, nil
+	}, nil
 }
 
 type namespaceService struct {
+	config   serviceConfig
 	managers map[NamespaceType]namespaceManager
 }
 
 var _ service.Service = &namespaceService{}
 
 func (svr *namespaceService) Init() error {
-	log.Logger(service.NamespaceService, "").Info("Service initialized")
+	var err error
+	if svr.managers[UTS], err = newUTSNamespaceManager(svr.config.Capacity[UTS]); err != nil {
+		return err
+	}
+	if svr.managers[IPC], err = newIPCNamespaceManager(svr.config.Capacity[IPC]); err != nil {
+		return err
+	}
+	if svr.managers[MNT], err = newMountNamespaceManager(svr.config.Capacity[MNT], svr.config.ExtraArgs[MNT]); err != nil {
+		return err
+	}
+	log.Logger(service.NamespaceService, "Init").Info("Service initialized")
 	return nil
 }
 

@@ -14,7 +14,8 @@ import (
 	"github.com/YLonely/cr-daemon/utils"
 )
 
-const bundle = "/var/lib/crdaemon"
+const DefautlBundlePath = "/var/lib/crdaemon"
+const DefaultSocketName = "daemon.socket"
 
 type Server struct {
 	services map[service.ServiceType]service.Service
@@ -23,10 +24,10 @@ type Server struct {
 }
 
 func NewServer() (*Server, error) {
-	if err := os.MkdirAll(bundle, 0755); err != nil {
+	if err := os.MkdirAll(DefautlBundlePath, 0755); err != nil {
 		return nil, err
 	}
-	socketPath := path.Join(bundle, "daemon.socket")
+	socketPath := path.Join(DefautlBundlePath, DefaultSocketName)
 	os.Remove(socketPath)
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
@@ -36,7 +37,7 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	namespaceSvr, err := namespace.NewNamespaceService(bundle)
+	namespaceSvr, err := namespace.NewNamespaceService(DefautlBundlePath)
 	if err != nil {
 		return nil, err
 	}

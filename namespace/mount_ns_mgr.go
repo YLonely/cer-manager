@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -259,11 +260,25 @@ func (mgr *mountNamespaceManager) prepareRootfs(root string, newNS int) error {
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return err
 	}
-	//create a temp dir and mount it
+	//create a temp dir as the bundle
 	tempDir, err := ioutil.TempDir("", ".crdaemon.rootfs.*")
 	if err != nil {
 		return err
 	}
+	// create the upper, work and rootfs dir for the overlay mount
+	upperPath := filepath.Join(tempDir, "upper")
+	if err = os.Mkdir(upperPath, 0711); err != nil {
+		return err
+	}
+	workPath := filepath.Join(tempDir, "work")
+	if err = os.Mkdir(workPath, 0711); err != nil {
+		return err
+	}
+	rootfsPath := filepath.Join(tempDir, "rootfs")
+	if err = os.Mkdir(rootfsPath, 0711); err != nil {
+		return err
+	}
+	// mount the root dir to rootfs
 	if err = unix.Mount(root, tempDir, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return err
 	}
