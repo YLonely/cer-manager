@@ -14,14 +14,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type NamespaceType string
-
-const (
-	IPC NamespaceType = "ipc"
-	UTS NamespaceType = "uts"
-	MNT NamespaceType = "mnt"
-)
-
 const (
 	MethodGetNamespace string = "Get"
 	MethodPutNamespace string = "Put"

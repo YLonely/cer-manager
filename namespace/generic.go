@@ -1,26 +1,26 @@
 package namespace
 
 import (
-	"fmt"
-	"os"
-	"runtime"
 	"sync"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
-func newGenericNamespaceManager(capacity int, t NamespaceType, postUnshareHook func(oldNS, newNS int) error) (*genericNamespaceManager, error) {
+func newGenericNamespaceManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (fd int, err error)) (*genericNamespaceManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
 	manager := &genericNamespaceManager{
-		capacity: capacity,
-		usedNS:   map[int]int{},
-		unusedNS: map[int]int{},
-		t:        t,
-		id:       0,
-		hook:     postUnshareHook,
+		capacity:         capacity,
+		usedNS:           map[int]int{},
+		unusedNS:         map[int]int{},
+		t:                t,
+		id:               0,
+		newNamespaceFunc: newNamespaceFunc,
+	}
+	if newNamespaceFunc == nil {
+		manager.newNamespaceFunc = genericCreateNewNamespace
 	}
 	if err := manager.init(); err != nil {
 		return nil, err
@@ -29,13 +29,13 @@ func newGenericNamespaceManager(capacity int, t NamespaceType, postUnshareHook f
 }
 
 type genericNamespaceManager struct {
-	capacity int
-	usedNS   map[int]int
-	unusedNS map[int]int
-	id       int
-	m        sync.Mutex
-	t        NamespaceType
-	hook     func(int, int) error
+	capacity         int
+	usedNS           map[int]int
+	unusedNS         map[int]int
+	id               int
+	m                sync.Mutex
+	t                NamespaceType
+	newNamespaceFunc func(NamespaceType) (int, error)
 }
 
 var _ namespaceManager = &genericNamespaceManager{}
@@ -92,64 +92,34 @@ func (mgr *genericNamespaceManager) CleanUp() error {
 }
 
 func (mgr *genericNamespaceManager) init() (err error) {
-	var flag int
-	var oldNSFd, newNSFd int
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if flag, err = nsFlag(mgr.t); err != nil {
-		return
-	}
-	if oldNSFd, err = openNSFd(mgr.t); err != nil {
-		return
-	}
+	var newNSFd int
 	defer func() {
 		if err != nil {
 			if errClean := mgr.CleanUp(); errClean != nil {
 				err = errors.Wrap(err, errClean.Error())
 			}
 		}
-		if errClose := unix.Close(oldNSFd); errClose != nil {
-			if err != nil {
-				err = errors.Wrap(err, errClose.Error())
-			} else {
-				err = errClose
-			}
-		}
 	}()
 	for i := 0; i < mgr.capacity; i++ {
-		if newNSFd, err = mgr.createNewNamespace(flag, oldNSFd); err != nil {
+		if newNSFd, err = mgr.newNamespaceFunc(mgr.t); err != nil {
 			return
 		} else {
 			mgr.unusedNS[mgr.id] = newNSFd
 			mgr.id++
 		}
-		//return back to the old ns
-		if err = unix.Setns(oldNSFd, flag); err != nil {
-			return
-		}
 	}
 	return
 }
 
-func (mgr *genericNamespaceManager) createNewNamespace(flag, oldNS int) (int, error) {
-	var err error
-	if err = unix.Unshare(flag); err != nil {
+func genericCreateNewNamespace(t NamespaceType) (int, error) {
+	h, err := newNamespaceHelper(namespaceOpCreate, t)
+	if err != nil {
 		return -1, err
 	}
-	fd, errOpen := openNSFd(mgr.t)
-	if errOpen != nil {
-		if err != nil {
-			err = errors.Wrap(err, errOpen.Error())
-		} else {
-			err = errOpen
-		}
+	if err := h.do(); err != nil {
+		return -1, err
 	}
-	if mgr.hook != nil {
-		if err = mgr.hook(oldNS, fd); err != nil {
-			err = errors.Wrap(err, "failed to execute the hook")
-		}
-	}
-	return fd, err
+	return h.getFd(), nil
 }
 
 func nsFlag(t NamespaceType) (int, error) {
@@ -163,25 +133,4 @@ func nsFlag(t NamespaceType) (int, error) {
 	default:
 		return -1, errors.New("invalid ns type")
 	}
-}
-
-func openNSFd(t NamespaceType) (int, error) {
-	var nsFileName string
-	switch t {
-	case IPC:
-		nsFileName = "ipc"
-	case UTS:
-		nsFileName = "uts"
-	case MNT:
-		nsFileName = "mnt"
-	default:
-		return -1, errors.New("invalid ns type")
-	}
-	pid := os.Getpid()
-	nsFilePath := fmt.Sprintf("/proc/%d/ns/%s", pid, nsFileName)
-	f, err := os.Open(nsFilePath)
-	if err != nil {
-		return -1, err
-	}
-	return int(f.Fd()), nil
 }
