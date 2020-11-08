@@ -19,9 +19,6 @@ func newGenericNamespaceManager(capacity int, t NamespaceType, newNamespaceFunc 
 		id:               0,
 		newNamespaceFunc: newNamespaceFunc,
 	}
-	if newNamespaceFunc == nil {
-		manager.newNamespaceFunc = genericCreateNewNamespace
-	}
 	if err := manager.init(); err != nil {
 		return nil, err
 	}
@@ -112,7 +109,7 @@ func (mgr *genericNamespaceManager) init() (err error) {
 }
 
 func genericCreateNewNamespace(t NamespaceType) (int, error) {
-	h, err := newNamespaceHelper(namespaceOpCreate, t)
+	h, err := newNamespaceHelper(NamespaceOpCreate, t)
 	if err != nil {
 		return -1, err
 	}

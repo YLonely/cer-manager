@@ -21,8 +21,29 @@ var createCommand = cli.Command{
 			Required: true,
 		},
 		cli.StringFlag{
-			Name:  "rootfs",
-			Usage: "specifiy the path to the rootfs if the type is mnt",
+			Name:  "src",
+			Usage: "specifiy the source(lower) dir of the overlay mount in new mount namespace",
+		},
+		cli.StringFlag{
+			Name:  "bundle",
+			Usage: "specifiy the path to the bundle if the type is mnt",
+		},
+	},
+}
+
+var releaseCommand = cli.Command{
+	Name:  "release",
+	Usage: "release the resources inside a namespace",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:     "type",
+			Usage:    "specifiy the type of the namespace",
+			Required: true,
+		},
+		cli.IntFlag{
+			Name:     "pid",
+			Usage:    "specifiy the pid of the process which owns the namespace",
+			Required: true,
 		},
 	},
 }

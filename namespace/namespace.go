@@ -7,27 +7,35 @@ import (
 	"github.com/pkg/errors"
 )
 
-type NamespaceCreate func(args ...interface{}) error
+type NamespaceFunction func(args ...interface{}) error
 
-var namespaceCreateFuncs map[NamespaceType]NamespaceCreate
+var namespaceFunctions = map[NamespaceOpType]map[NamespaceType]NamespaceFunction{}
 
-func GetNamespaceCreate(t NamespaceType) NamespaceCreate {
-	if f, exists := namespaceCreateFuncs[t]; exists {
-		return f
+func GetNamespaceFunction(op NamespaceOpType, t NamespaceType) NamespaceFunction {
+	if functionsOfType, exists := namespaceFunctions[op]; exists {
+		if f, valid := functionsOfType[t]; valid {
+			return f
+		}
 	}
 	return nil
 }
 
-type NamespaceDestroy func(args ...interface{}) error
-
-var namespaceDestroyFuncs map[NamespaceType]NamespaceDestroy
-
-func GetNamespaceDestroy(t NamespaceType) NamespaceDestroy {
-	if f, exists := namespaceDestroyFuncs[t]; exists {
-		return f
+func PutNamespaceFunction(op NamespaceOpType, t NamespaceType, f NamespaceFunction) {
+	var functionsOfType map[NamespaceType]NamespaceFunction
+	var exists bool
+	if functionsOfType, exists = namespaceFunctions[op]; !exists {
+		namespaceFunctions[op] = map[NamespaceType]NamespaceFunction{}
+		functionsOfType = namespaceFunctions[op]
 	}
-	return nil
+	functionsOfType[t] = f
 }
+
+type NamespaceOpType string
+
+const (
+	NamespaceOpCreate  NamespaceOpType = "create"
+	NamespaceOpRelease NamespaceOpType = "release"
+)
 
 const (
 	NamespaceErrorFormat  string = "error:%s"

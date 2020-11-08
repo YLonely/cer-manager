@@ -1,12 +1,11 @@
 package namespace
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -15,22 +14,31 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func init() {
+	PutNamespaceFunction(NamespaceOpCreate, MNT, populateRootfs)
+	PutNamespaceFunction(NamespaceOpRelease, MNT, depopulateRootfs)
+}
+
 func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, error) {
 	if capacity < 0 || len(roots) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
 	nsMgr := &mountNamespaceManager{
-		mgrs:     map[string]*subManager{},
-		rootsFds: map[int]string{},
+		mgrs:       map[string]*subManager{},
+		allBundles: map[int]string{},
 	}
 	offset := 0
 	for _, root := range roots {
 		root = strings.TrimSuffix(root, "/")
 		nsMgr.mgrs[root] = &subManager{
-			offset:    offset,
-			usedRoots: map[int]string{},
+			offset:      offset,
+			usedBundles: map[int]string{},
 		}
-		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeMountHook(root)); err != nil {
+		bundle, err := createBundle()
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to create bundle")
+		}
+		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(root, bundle)); err != nil {
 			return nil, err
 		} else {
 			nsMgr.mgrs[root].mgr = mgr
@@ -43,16 +51,18 @@ func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, e
 var _ namespaceManager = &mountNamespaceManager{}
 
 type mountNamespaceManager struct {
-	mgrs     map[string]*subManager
-	rootsFds map[int]string
+	mgrs map[string]*subManager
+	// allBundles maps namespace fd to it's bundle path
+	allBundles map[int]string
 }
 
 type subManager struct {
-	mgr          *genericNamespaceManager
-	offset       int
-	usedRoots    map[int]string
-	mountedRoots []string
-	mutex        sync.Mutex
+	mgr    *genericNamespaceManager
+	offset int
+	// usedBundles maps namespace id to bundle dir
+	usedBundles   map[int]string
+	unusedBundles []string
+	mutex         sync.Mutex
 }
 
 func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, error) {
@@ -66,13 +76,13 @@ func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, e
 		retID := id*len(mgr.mgrs) + sub.offset
 		sub.mutex.Lock()
 		defer sub.mutex.Unlock()
-		l := len(sub.mountedRoots)
+		l := len(sub.unusedBundles)
 		if l == 0 {
 			panic("The number of the namespace and rootfs didn't match")
 		}
-		retRoot := sub.mountedRoots[l-1]
-		sub.mountedRoots = sub.mountedRoots[:l-1]
-		sub.usedRoots[id] = retRoot
+		retRoot := sub.unusedBundles[l-1]
+		sub.unusedBundles = sub.unusedBundles[:l-1]
+		sub.usedBundles[id] = retRoot
 		return retID, fd, retRoot, nil
 	}
 	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", root)
@@ -88,11 +98,11 @@ func (mgr *mountNamespaceManager) Put(id int) error {
 			}
 			sub.mutex.Lock()
 			defer sub.mutex.Unlock()
-			if root, exists := sub.usedRoots[innerID]; !exists {
+			if root, exists := sub.usedBundles[innerID]; !exists {
 				panic("Rootfs %d isn't in use in mnt ns manager")
 			} else {
-				delete(sub.usedRoots, innerID)
-				sub.mountedRoots = append(sub.mountedRoots, root)
+				delete(sub.usedBundles, innerID)
+				sub.unusedBundles = append(sub.unusedBundles, root)
 			}
 			return nil
 		}
@@ -106,7 +116,7 @@ func (mgr *mountNamespaceManager) Update(interface{}) error {
 
 func (mgr *mountNamespaceManager) CleanUp() error {
 	var err error
-	for fd, root := range mgr.rootsFds {
+	for fd, root := range mgr.allBundles {
 		if err = depopulateRootfs(fd, root); err != nil {
 			return err
 		}
@@ -217,104 +227,138 @@ var maskedPaths = []string{
 	"/proc/scsi",
 }
 
-func depopulateRootfs(fd int, root string) error {
-	var err error
-	scriptPath := "/var/lib/crdaemon/scripts/depopulate_rootfs.sh"
-	if _, err = os.Stat(scriptPath); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-		if err = createScript(scriptPath); err != nil {
-			return err
-		}
-	}
-	cmd := exec.Command(scriptPath, strconv.Itoa(os.Getpid()), strconv.Itoa(fd), root)
-	if err = cmd.Run(); err != nil {
-		return err
-	}
-	return os.Remove(root)
-}
-
-func createScript(scriptPath string) error {
-	if err := os.MkdirAll(path.Dir(scriptPath), 0755); err != nil {
-		return err
-	}
-	f, err := os.Create(scriptPath)
+func createBundle() (string, error) {
+	// create the bundle dir
+	bundle, err := ioutil.TempDir("", ".crdaemon.bundle.*")
 	if err != nil {
-		return err
+		return "", err
 	}
-	f.WriteString("#!/bin/sh\npid=$1\nns_fd=$2\nroot=$3\nnsenter --mount=/proc/$pid/fd/$ns_fd umount -Rl $root")
-	f.Close()
-	os.Chmod(scriptPath, 0755)
-	return nil
+	// create the upper, work and rootfs dir for the overlay mount
+	upperPath := filepath.Join(bundle, "upper")
+	if err = os.Mkdir(upperPath, 0711); err != nil {
+		return "", err
+	}
+	workPath := filepath.Join(bundle, "work")
+	if err = os.Mkdir(workPath, 0711); err != nil {
+		return "", err
+	}
+	rootfsPath := filepath.Join(bundle, "rootfs")
+	if err = os.Mkdir(rootfsPath, 0711); err != nil {
+		return "", err
+	}
+	return bundle, nil
 }
 
-func (mgr *mountNamespaceManager) makeMountHook(root string) func(int, int) error {
-	return func(oldNS, newNS int) error {
-		return mgr.prepareRootfs(root, newNS)
+func (mgr *mountNamespaceManager) makeCreateNewNamespace(root, bundle string) func(NamespaceType) (int, error) {
+	return func(t NamespaceType) (int, error) {
+		//call the namespace helper to create the ns
+		helper, err := newNamespaceHelper(NamespaceOpCreate, t,
+			arg{
+				key:   "--src",
+				value: root,
+			},
+			arg{
+				key:   "--bundle",
+				value: bundle,
+			},
+		)
+		if err = helper.do(); err != nil {
+			return -1, errors.Wrap(err, "Can't create new mnt namespace")
+		}
+		newNSFd := helper.getFd()
+		sub := mgr.mgrs[root]
+		sub.unusedBundles = append(sub.unusedBundles, bundle)
+		mgr.allBundles[newNSFd] = bundle
+		return newNSFd, nil
 	}
 }
 
-func (mgr *mountNamespaceManager) prepareRootfs(root string, newNS int) error {
+func populateRootfs(args ...interface{}) error {
+	l := len(args)
+	if l < 2 {
+		return errors.New("No enough arguments")
+	}
+	src, ok := args[0].(string)
+	if !ok {
+		return errors.New("Can't convert arg[0] to string")
+	}
+	bundle, ok := args[1].(string)
+	if !ok {
+		return errors.New("Can't convert arg[1] to string")
+	}
 	//isolate the root
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return err
 	}
-	//create a temp dir as the bundle
-	tempDir, err := ioutil.TempDir("", ".crdaemon.rootfs.*")
-	if err != nil {
-		return err
-	}
-	// create the upper, work and rootfs dir for the overlay mount
-	upperPath := filepath.Join(tempDir, "upper")
-	if err = os.Mkdir(upperPath, 0711); err != nil {
-		return err
-	}
-	workPath := filepath.Join(tempDir, "work")
-	if err = os.Mkdir(workPath, 0711); err != nil {
-		return err
-	}
-	rootfsPath := filepath.Join(tempDir, "rootfs")
-	if err = os.Mkdir(rootfsPath, 0711); err != nil {
-		return err
-	}
-	// mount the root dir to rootfs
-	if err = unix.Mount(root, tempDir, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
-		return err
-	}
-	if err = unix.Mount("", tempDir, "", unix.MS_PRIVATE|unix.MS_REC, ""); err != nil {
-		return err
+	// mount the src dir to rootfs dir in bundle
+	rootfs := path.Join(bundle, "rootfs")
+	mountData := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", src, path.Join(bundle, "upper"), path.Join(bundle, "work"))
+	if err := unix.Mount("overlay", rootfs, "overlay", uintptr(0), mountData); err != nil {
+		return errors.Wrapf(err, "mount(overlay,%s,overlay,0,%s) failed", rootfs, mountData)
 	}
 	//mount general fs
 	for _, m := range mounts {
 		flags, data := parseMountOptions(m.options)
-		if err := unix.Mount(m.src, path.Join(tempDir, m.dest), m.mtype, uintptr(flags), data); err != nil {
-			return err
+		if err := unix.Mount(m.src, path.Join(rootfs, m.dest), m.mtype, uintptr(flags), data); err != nil {
+			return errors.Wrapf(err, "mount(%s,%s,%s,%d,%s) failed", m.src, path.Join(rootfs, m.dest), m.mtype, flags, data)
 		}
 	}
 	//make readonly paths
 	for _, p := range readonlyPaths {
-		joinedPath := path.Join(tempDir, p)
+		joinedPath := path.Join(rootfs, p)
 		if err := unix.Mount(joinedPath, joinedPath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 			if !os.IsNotExist(err) {
-				return err
+				return errors.Wrapf(err, "Make %s readonly failed", joinedPath)
 			}
 		}
 	}
 	//make masked paths
 	for _, p := range maskedPaths {
-		joinedPath := path.Join(tempDir, p)
+		joinedPath := path.Join(rootfs, p)
 		if err := unix.Mount("/dev/null", joinedPath, "", unix.MS_BIND, ""); err != nil && !os.IsNotExist(err) {
 			if err == unix.ENOTDIR {
 				if err = unix.Mount("tmpfs", joinedPath, "tmpfs", unix.MS_RDONLY, ""); err != nil {
-					return err
+					return errors.Wrapf(err, "Make %s masked failed", joinedPath)
 				}
 			}
 		}
 	}
-	sub := mgr.mgrs[root]
-	sub.mountedRoots = append(sub.mountedRoots, tempDir)
-	mgr.rootsFds[newNS] = tempDir
+	return nil
+}
+
+func depopulateRootfs(args ...interface{}) error {
+	var failed []string
+	l := len(args)
+	if l < 1 {
+		return errors.New("No enough args")
+	}
+	bundle, ok := args[0].(string)
+	if !ok {
+		return errors.New("Can't convert args[0] to string")
+	}
+	rootfs := path.Join(bundle, "rootfs")
+	paths := append(maskedPaths, readonlyPaths...)
+	for i := len(mounts); i >= 0; i-- {
+		paths = append(paths, mounts[i].dest)
+	}
+	// umount all the mount point in rootfs
+	for _, p := range paths {
+		joinedPath := path.Join(rootfs, p)
+		if err := unix.Unmount(joinedPath, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
+			failed = append(failed, err.Error()+":failed to unmount "+joinedPath)
+		}
+	}
+	// umount rootfs
+	if err := unix.Unmount(rootfs, unix.MNT_DETACH); err != nil {
+		failed = append(failed, err.Error()+":failed to unmount "+rootfs)
+	}
+	// remove bundle
+	if err := os.RemoveAll(bundle); err != nil {
+		failed = append(failed, err.Error()+":failed to remove "+bundle)
+	}
+	if len(failed) != 0 {
+		return errors.New(strings.Join(failed, ";"))
+	}
 	return nil
 }
 

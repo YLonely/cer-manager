@@ -15,14 +15,15 @@ type namespaceHelper struct {
 	newNSFd int
 	cmd     *exec.Cmd
 	t       NamespaceType
-	op      namespaceOpType
+	op      NamespaceOpType
 }
 
-type namespaceOpType string
-
 const (
-	namespaceOpCreate  namespaceOpType = "create"
-	namespaceOpDestroy namespaceOpType = "destroy"
+	nsexecOpKey     string = "OP_TYPE"
+	nsexecOpCreate  string = "CREATE"
+	nsexecOpEnter   string = "ENTER"
+	nsexecNSTypeKey string = "NS_TYPE"
+	nsexecNSPathKey string = "NS_PATH"
 )
 
 type arg struct {
@@ -30,8 +31,8 @@ type arg struct {
 	value string
 }
 
-func newNamespaceHelper(op namespaceOpType, t NamespaceType, args ...arg) (*namespaceHelper, error) {
-	if op != namespaceOpCreate && op != namespaceOpDestroy {
+func newNamespaceHelper(op NamespaceOpType, t NamespaceType, args ...arg) (*namespaceHelper, error) {
+	if op != NamespaceOpCreate && op != NamespaceOpRelease {
 		return nil, errors.New("Invalid namespaceOpType")
 	}
 	cmd := exec.Command("/proc/self/exe")
@@ -41,6 +42,31 @@ func newNamespaceHelper(op namespaceOpType, t NamespaceType, args ...arg) (*name
 		if a.value != "" {
 			cmd.Args = append(cmd.Args, a.value)
 		}
+	}
+	switch op {
+	case NamespaceOpCreate:
+		cmd.Env = append(
+			cmd.Env,
+			nsexecOpKey+"="+nsexecOpCreate,
+			nsexecNSTypeKey+"="+string(t),
+		)
+	case NamespaceOpRelease:
+		{
+			ok := false
+			for _, arg := range args {
+				if arg.key == "--pid" {
+					ok = true
+					cmd.Env = append(
+						cmd.Env,
+						nsexecOpKey+"="+nsexecOpEnter,
+						nsexecNSPathKey+"="+fmt.Sprintf("/proc/%s/ns/%s", arg.value, string(t)),
+					)
+					break
+				}
+			}
+		}
+	default:
+		panic("Invalid NamespaceOpType")
 	}
 	return &namespaceHelper{
 		cmd:     cmd,
@@ -74,7 +100,7 @@ func (helper *namespaceHelper) do() error {
 		fmt.Sscanf(ret, NamespaceErrorFormat, &msg)
 		return errors.Errorf("Failed to execute cmd, error %s", msg)
 	}
-	if helper.op == namespaceOpCreate {
+	if helper.op == NamespaceOpCreate {
 		_, err = fmt.Sscanf(ret, NamespaceReturnFormat, &msg)
 		if err != nil {
 			return errors.Wrapf(err, "Invalid return format %s", ret)
