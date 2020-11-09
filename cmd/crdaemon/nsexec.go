@@ -1,25 +1,28 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
+	"github.com/YLonely/cr-daemon/namespace"
 	_ "github.com/YLonely/cr-daemon/nsenter"
 	"github.com/urfave/cli"
 )
 
 var nsexecCommand = cli.Command{
-	Name:        "nsexec",
-	Usage:       "manage namespaces",
-	Subcommands: []cli.Command{},
+	Name:  "nsexec",
+	Usage: "manage namespaces",
+	Subcommands: []cli.Command{
+		createCommand,
+		releaseCommand,
+	},
 }
 
 var createCommand = cli.Command{
-	Name:  "create",
-	Usage: "create and initial a namespace",
+	Name:      "create",
+	Usage:     "create and initial a namespace",
+	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
 	Flags: []cli.Flag{
-		cli.StringFlag{
-			Name:     "type",
-			Usage:    "specifiy the type of the namespace",
-			Required: true,
-		},
 		cli.StringFlag{
 			Name:  "src",
 			Usage: "specifiy the source(lower) dir of the overlay mount in new mount namespace",
@@ -29,21 +32,57 @@ var createCommand = cli.Command{
 			Usage: "specifiy the path to the bundle if the type is mnt",
 		},
 	},
+	Action: func(context *cli.Context) error {
+		t := context.Args().First()
+		if t == "" {
+			printError("Namespace type must be provided\n")
+			return nil
+		}
+		f := namespace.GetNamespaceFunction(namespace.NamespaceOpCreate, namespace.NamespaceType(t))
+		if f != nil {
+			err := f(context.String("src"), context.String("bundle"))
+			if err != nil {
+				printError("Failed to invoke namespace function %s\n", err.Error())
+				return nil
+			}
+		}
+		//we have to return our pid here
+		fmt.Printf("ret:%d\n", os.Getpid())
+		//and wait for parent process to open the namespace file
+		var dummy string
+		fmt.Scanln(&dummy)
+		return nil
+	},
 }
 
 var releaseCommand = cli.Command{
-	Name:  "release",
-	Usage: "release the resources inside a namespace",
+	Name:      "release",
+	Usage:     "release the resources inside a namespace",
+	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:     "type",
-			Usage:    "specifiy the type of the namespace",
-			Required: true,
-		},
-		cli.IntFlag{
-			Name:     "pid",
-			Usage:    "specifiy the pid of the process which owns the namespace",
-			Required: true,
+			Name:  "bundle",
+			Usage: "spacifiy the path to the bundle if the ns type is mnt",
 		},
 	},
+	Action: func(context *cli.Context) error {
+		t := context.Args().First()
+		if t == "" {
+			printError("Namespace type must be provided\n")
+			return nil
+		}
+		f := namespace.GetNamespaceFunction(namespace.NamespaceOpRelease, namespace.NamespaceType(t))
+		if f != nil {
+			err := f(context.String("bundle"))
+			if err != nil {
+				printError("Failed to invoke namespace function %s\n", err.Error())
+				return nil
+			}
+		}
+		return nil
+	},
+}
+
+func printError(format string, a ...interface{}) {
+	fmt.Printf("error:"+format, a...)
 }

@@ -31,48 +31,42 @@ type arg struct {
 	value string
 }
 
-func newNamespaceHelper(op NamespaceOpType, t NamespaceType, args ...arg) (*namespaceHelper, error) {
-	if op != NamespaceOpCreate && op != NamespaceOpRelease {
-		return nil, errors.New("Invalid namespaceOpType")
+func newNamespaceCreateHelper(t NamespaceType, src, bundle string) (*namespaceHelper, error) {
+	cmd := exec.Command("/proc/self/exe", "nsexec", "create")
+	if t == MNT {
+		cmd.Args = append(cmd.Args, "--src", src, "--bundle", bundle)
 	}
-	cmd := exec.Command("/proc/self/exe")
-	cmd.Args = append(cmd.Args, string(op), "--type", string(t))
-	for _, a := range args {
-		cmd.Args = append(cmd.Args, a.key)
-		if a.value != "" {
-			cmd.Args = append(cmd.Args, a.value)
-		}
-	}
-	switch op {
-	case NamespaceOpCreate:
-		cmd.Env = append(
-			cmd.Env,
-			nsexecOpKey+"="+nsexecOpCreate,
-			nsexecNSTypeKey+"="+string(t),
-		)
-	case NamespaceOpRelease:
-		{
-			ok := false
-			for _, arg := range args {
-				if arg.key == "--pid" {
-					ok = true
-					cmd.Env = append(
-						cmd.Env,
-						nsexecOpKey+"="+nsexecOpEnter,
-						nsexecNSPathKey+"="+fmt.Sprintf("/proc/%s/ns/%s", arg.value, string(t)),
-					)
-					break
-				}
-			}
-		}
-	default:
-		panic("Invalid NamespaceOpType")
-	}
+	cmd.Args = append(cmd.Args, string(t))
+	cmd.Env = append(
+		cmd.Env,
+		nsexecOpKey+"="+nsexecOpCreate,
+		nsexecNSTypeKey+"="+string(t),
+	)
 	return &namespaceHelper{
 		cmd:     cmd,
 		newNSFd: -1,
 		t:       t,
-		op:      op,
+		op:      NamespaceOpCreate,
+	}, nil
+}
+
+func newNamespaceReleaseHelper(t NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
+	cmd := exec.Command("/proc/self/exe", "nsexec", "release")
+	if t == MNT {
+		cmd.Args = append(cmd.Args, "--bundle", bundle)
+	}
+	cmd.Args = append(cmd.Args, string(t))
+	cmd.Env = append(
+		cmd.Env,
+		nsexecOpKey+"="+nsexecOpEnter,
+		nsexecNSTypeKey+"="+string(t),
+		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", pid, fd),
+	)
+	return &namespaceHelper{
+		cmd:     cmd,
+		newNSFd: -1,
+		t:       t,
+		op:      NamespaceOpRelease,
 	}, nil
 }
 
@@ -118,7 +112,7 @@ func (helper *namespaceHelper) do() error {
 		}
 		helper.newNSFd = fd
 		// tell child process that we are all good
-		io.WriteString(stdin, "OK")
+		io.WriteString(stdin, "OK\n")
 	}
 	return nil
 }

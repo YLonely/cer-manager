@@ -13,6 +13,10 @@ func main() {
 	app.Name = "crdaemon"
 	app.Usage = "crdaemon provides extra features for serverless container"
 	app.Version = "v0.0.1"
+	app.Commands = []cli.Command{
+		startCommand,
+		nsexecCommand,
+	}
 
 	if err := app.Run(os.Args); err != nil {
 		log.Logger(service.MainService, "").WithError(err).Error()

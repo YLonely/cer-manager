@@ -109,7 +109,7 @@ func (mgr *genericNamespaceManager) init() (err error) {
 }
 
 func genericCreateNewNamespace(t NamespaceType) (int, error) {
-	h, err := newNamespaceHelper(NamespaceOpCreate, t)
+	h, err := newNamespaceCreateHelper(t, "", "")
 	if err != nil {
 		return -1, err
 	}

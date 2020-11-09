@@ -115,22 +115,26 @@ func (mgr *mountNamespaceManager) Update(interface{}) error {
 }
 
 func (mgr *mountNamespaceManager) CleanUp() error {
-	var err error
-	for fd, root := range mgr.allBundles {
-		if err = depopulateRootfs(fd, root); err != nil {
-			return err
+	var failed []string
+	for fd, bundle := range mgr.allBundles {
+		helper, err := newNamespaceReleaseHelper(MNT, os.Getpid(), fd, bundle)
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("Failed to create ns helper for fd %d and bundle %s", fd, bundle))
+			continue
+		}
+		if err = helper.do(); err != nil {
+			failed = append(failed, fmt.Sprintf("Failed to execute helper for fd %d and bundle %s", fd, bundle))
 		}
 	}
 	for _, sub := range mgr.mgrs {
-		if errClean := sub.mgr.CleanUp(); errClean != nil {
-			if err != nil {
-				err = errors.Wrap(err, errClean.Error())
-			} else {
-				err = errClean
-			}
+		if err := sub.mgr.CleanUp(); err != nil {
+			failed = append(failed, "Failed to cleanup sub manager")
 		}
 	}
-	return err
+	if len(failed) != 0 {
+		return errors.New(strings.Join(failed, ";"))
+	}
+	return nil
 }
 
 type mount struct {
@@ -252,16 +256,7 @@ func createBundle() (string, error) {
 func (mgr *mountNamespaceManager) makeCreateNewNamespace(root, bundle string) func(NamespaceType) (int, error) {
 	return func(t NamespaceType) (int, error) {
 		//call the namespace helper to create the ns
-		helper, err := newNamespaceHelper(NamespaceOpCreate, t,
-			arg{
-				key:   "--src",
-				value: root,
-			},
-			arg{
-				key:   "--bundle",
-				value: bundle,
-			},
-		)
+		helper, err := newNamespaceCreateHelper(t, root, bundle)
 		if err = helper.do(); err != nil {
 			return -1, errors.Wrap(err, "Can't create new mnt namespace")
 		}

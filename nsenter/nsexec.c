@@ -1,8 +1,10 @@
 #define _GNU_SOURCE
+#include <fcntl.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define OP_TYPE_CREATE "CREATE"
 #define OP_TYPE_ENTER "ENTER"
@@ -31,8 +33,16 @@ void nsenter(int flag) {
     char *ns_path = getenv(NS_PATH_KEY);
     if (ns_path == NULL)
         error("No ns_path provided");
-    if (setns(ns_path, flag))
+    int fd;
+    if ((fd = open(ns_path, O_RDONLY)) == -1) {
+        sprintf(msg_arr, "Can't open ns file %s", ns_path);
+        error(msg_arr);
+    }
+    if (setns(fd, flag)) {
+        close(fd);
         error("setns failed");
+    }
+    close(fd);
 }
 
 void nscreate(int flag) {
