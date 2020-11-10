@@ -79,6 +79,7 @@ var releaseCommand = cli.Command{
 				return nil
 			}
 		}
+		fmt.Println("ret:OK")
 		return nil
 	},
 }

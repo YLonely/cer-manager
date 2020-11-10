@@ -19,11 +19,11 @@ type namespaceHelper struct {
 }
 
 const (
-	nsexecOpKey     string = "OP_TYPE"
+	nsexecOpKey     string = "__OP_TYPE__"
 	nsexecOpCreate  string = "CREATE"
 	nsexecOpEnter   string = "ENTER"
-	nsexecNSTypeKey string = "NS_TYPE"
-	nsexecNSPathKey string = "NS_PATH"
+	nsexecNSTypeKey string = "__NS_TYPE__"
+	nsexecNSPathKey string = "__NS_PATH__"
 )
 
 type arg struct {
@@ -111,7 +111,7 @@ func (helper *namespaceHelper) do() error {
 			return errors.Wrap(err, "Can't open ns file")
 		}
 		helper.newNSFd = fd
-		// tell child process that we are all good
+		// tell child process that it can exits
 		io.WriteString(stdin, "OK\n")
 	}
 	return nil

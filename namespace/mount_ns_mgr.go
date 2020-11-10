@@ -34,11 +34,7 @@ func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, e
 			offset:      offset,
 			usedBundles: map[int]string{},
 		}
-		bundle, err := createBundle()
-		if err != nil {
-			return nil, errors.Wrap(err, "Failed to create bundle")
-		}
-		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(root, bundle)); err != nil {
+		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(root)); err != nil {
 			return nil, err
 		} else {
 			nsMgr.mgrs[root].mgr = mgr
@@ -119,11 +115,11 @@ func (mgr *mountNamespaceManager) CleanUp() error {
 	for fd, bundle := range mgr.allBundles {
 		helper, err := newNamespaceReleaseHelper(MNT, os.Getpid(), fd, bundle)
 		if err != nil {
-			failed = append(failed, fmt.Sprintf("Failed to create ns helper for fd %d and bundle %s", fd, bundle))
+			failed = append(failed, fmt.Sprintf("Failed to create ns helper for fd %d and bundle %s with error %s", fd, bundle, err.Error()))
 			continue
 		}
 		if err = helper.do(); err != nil {
-			failed = append(failed, fmt.Sprintf("Failed to execute helper for fd %d and bundle %s", fd, bundle))
+			failed = append(failed, fmt.Sprintf("Failed to execute helper for fd %d and bundle %s with error %s", fd, bundle, err.Error()))
 		}
 	}
 	for _, sub := range mgr.mgrs {
@@ -253,8 +249,12 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountNamespaceManager) makeCreateNewNamespace(root, bundle string) func(NamespaceType) (int, error) {
+func (mgr *mountNamespaceManager) makeCreateNewNamespace(root string) func(NamespaceType) (int, error) {
 	return func(t NamespaceType) (int, error) {
+		bundle, err := createBundle()
+		if err != nil {
+			return -1, errors.Wrap(err, "Can't create bundle for "+root)
+		}
 		//call the namespace helper to create the ns
 		helper, err := newNamespaceCreateHelper(t, root, bundle)
 		if err = helper.do(); err != nil {
@@ -333,7 +333,7 @@ func depopulateRootfs(args ...interface{}) error {
 	}
 	rootfs := path.Join(bundle, "rootfs")
 	paths := append(maskedPaths, readonlyPaths...)
-	for i := len(mounts); i >= 0; i-- {
+	for i := len(mounts) - 1; i >= 0; i-- {
 		paths = append(paths, mounts[i].dest)
 	}
 	// umount all the mount point in rootfs

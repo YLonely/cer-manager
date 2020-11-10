@@ -8,9 +8,9 @@
 
 #define OP_TYPE_CREATE "CREATE"
 #define OP_TYPE_ENTER "ENTER"
-#define OP_TYPE_KEY "OP_TYPE"
-#define NS_TYPE_KEY "NS_TYPE"
-#define NS_PATH_KEY "NS_PATH"
+#define OP_TYPE_KEY "__OP_TYPE__"
+#define NS_TYPE_KEY "__NS_TYPE__"
+#define NS_PATH_KEY "__NS_PATH__"
 
 char msg_arr[1024];
 
@@ -53,7 +53,7 @@ void nscreate(int flag) {
 void nsexec() {
     char *op_type = getenv(OP_TYPE_KEY);
     if (op_type == NULL)
-        error("No op_type provided");
+        return;
     char *ns_type = getenv(NS_TYPE_KEY);
     if (ns_type == NULL)
         error("No ns_type provided");
