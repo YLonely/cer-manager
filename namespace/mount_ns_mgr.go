@@ -229,7 +229,7 @@ var maskedPaths = []string{
 
 func createBundle() (string, error) {
 	// create the bundle dir
-	bundle, err := ioutil.TempDir("", ".crdaemon.bundle.*")
+	bundle, err := ioutil.TempDir("", ".cer.bundle.*")
 	if err != nil {
 		return "", err
 	}

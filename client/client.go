@@ -1,14 +1,13 @@
 package client
 
 import (
-	"context"
 	"net"
 	"path/filepath"
 
-	"github.com/YLonely/cr-daemon/crdaemon"
+	"github.com/YLonely/cer-manager/cermanager"
 )
 
-func NewDaemonClient(config Config) (*Client, error) {
+func NewCERManagerClient(config Config) (*Client, error) {
 	var c net.Conn
 	var err error
 	if c, err = net.Dial("unix", config.SocketPath); err != nil {
@@ -20,8 +19,8 @@ func NewDaemonClient(config Config) (*Client, error) {
 }
 
 func NewDefaultClient() (*Client, error) {
-	return NewDaemonClient(Config{
-		SocketPath: filepath.Join(crdaemon.DefautlBundlePath, crdaemon.DefaultSocketName),
+	return NewCERManagerClient(Config{
+		SocketPath: filepath.Join(cermanager.DefautlBundlePath, cermanager.DefaultSocketName),
 	})
 }
 
@@ -33,6 +32,6 @@ type Client struct {
 	c net.Conn
 }
 
-func (client *Client) Close(context.Context) error {
+func (client *Client) Close() error {
 	return client.c.Close()
 }

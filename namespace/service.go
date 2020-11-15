@@ -8,9 +8,9 @@ import (
 	"os"
 	"path"
 
-	"github.com/YLonely/cr-daemon/log"
-	"github.com/YLonely/cr-daemon/service"
-	"github.com/YLonely/cr-daemon/utils"
+	"github.com/YLonely/cer-manager/log"
+	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/utils"
 	"github.com/pkg/errors"
 )
 

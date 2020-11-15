@@ -1,4 +1,4 @@
-package crdaemon
+package cermanager
 
 import (
 	"context"
@@ -8,13 +8,13 @@ import (
 	"path"
 	"sync"
 
-	"github.com/YLonely/cr-daemon/log"
-	"github.com/YLonely/cr-daemon/namespace"
-	"github.com/YLonely/cr-daemon/service"
-	"github.com/YLonely/cr-daemon/utils"
+	"github.com/YLonely/cer-manager/log"
+	"github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/utils"
 )
 
-const DefautlBundlePath = "/var/lib/crdaemon"
+const DefautlBundlePath = "/var/lib/cermanager"
 const DefaultSocketName = "daemon.socket"
 
 type Server struct {

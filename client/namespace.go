@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/YLonely/cr-daemon/namespace"
-	"github.com/YLonely/cr-daemon/service"
-	"github.com/YLonely/cr-daemon/utils"
+	"github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/utils"
 )
 
 func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {

@@ -4,8 +4,8 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/YLonely/cr-daemon/log"
-	"github.com/YLonely/cr-daemon/service"
+	"github.com/YLonely/cer-manager/log"
+	"github.com/YLonely/cer-manager/service"
 )
 
 var HandledSignals = []os.Signal{

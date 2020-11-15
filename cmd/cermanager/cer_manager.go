@@ -3,15 +3,15 @@ package main
 import (
 	"os"
 
-	"github.com/YLonely/cr-daemon/log"
-	"github.com/YLonely/cr-daemon/service"
+	"github.com/YLonely/cer-manager/log"
+	"github.com/YLonely/cer-manager/service"
 	"github.com/urfave/cli"
 )
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "crdaemon"
-	app.Usage = "crdaemon provides extra features for serverless container"
+	app.Name = "cer-manager"
+	app.Usage = "cer-manager manages external resources for serverless container"
 	app.Version = "v0.0.1"
 	app.Commands = []cli.Command{
 		startCommand,

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/YLonely/cr-daemon/namespace"
-	_ "github.com/YLonely/cr-daemon/nsenter"
+	"github.com/YLonely/cer-manager/namespace"
+	_ "github.com/YLonely/cer-manager/nsenter"
 	"github.com/urfave/cli"
 )
 
