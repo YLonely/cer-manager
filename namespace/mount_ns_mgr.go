@@ -29,15 +29,20 @@ func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, e
 	}
 	offset := 0
 	for _, root := range roots {
-		root = strings.TrimSuffix(root, "/")
-		nsMgr.mgrs[root] = &subManager{
+		parts := strings.Split(root, ",")
+		if len(parts) != 2 {
+			return nil, errors.Errorf("invalid format of extra args %s for mount namespace manager, expect format is \"rootfs_name,rootfs_path\"", root)
+		}
+		rootfsName, rootfsPath := parts[0], parts[1]
+		rootfsPath = strings.TrimSuffix(rootfsPath, "/")
+		nsMgr.mgrs[rootfsName] = &subManager{
 			offset:      offset,
 			usedBundles: map[int]string{},
 		}
-		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(root)); err != nil {
+		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(rootfsName, rootfsPath)); err != nil {
 			return nil, err
 		} else {
-			nsMgr.mgrs[root].mgr = mgr
+			nsMgr.mgrs[rootfsName].mgr = mgr
 		}
 		offset++
 	}
@@ -62,12 +67,12 @@ type subManager struct {
 }
 
 func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, error) {
-	root := arg.(string)
-	root = strings.TrimSuffix(root, "/")
-	if sub, exists := mgr.mgrs[root]; exists {
+	rootfsName := arg.(string)
+	rootfsName = strings.TrimSuffix(rootfsName, "/")
+	if sub, exists := mgr.mgrs[rootfsName]; exists {
 		id, fd, _, err := sub.mgr.Get(nil)
 		if err != nil {
-			return -1, -1, nil, errors.Wrap(err, "root "+root)
+			return -1, -1, nil, errors.Wrap(err, "rootfsName:"+rootfsName)
 		}
 		retID := id*len(mgr.mgrs) + sub.offset
 		sub.mutex.Lock()
@@ -81,7 +86,7 @@ func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, e
 		sub.usedBundles[id] = retRoot
 		return retID, fd, retRoot, nil
 	}
-	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", root)
+	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", rootfsName)
 }
 
 func (mgr *mountNamespaceManager) Put(id int) error {
@@ -249,19 +254,19 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountNamespaceManager) makeCreateNewNamespace(root string) func(NamespaceType) (int, error) {
+func (mgr *mountNamespaceManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (int, error) {
 	return func(t NamespaceType) (int, error) {
 		bundle, err := createBundle()
 		if err != nil {
-			return -1, errors.Wrap(err, "Can't create bundle for "+root)
+			return -1, errors.Wrap(err, "Can't create bundle for "+rootfsName)
 		}
 		//call the namespace helper to create the ns
-		helper, err := newNamespaceCreateHelper(t, root, bundle)
+		helper, err := newNamespaceCreateHelper(t, rootfsPath, bundle)
 		if err = helper.do(); err != nil {
 			return -1, errors.Wrap(err, "Can't create new mnt namespace")
 		}
 		newNSFd := helper.getFd()
-		sub := mgr.mgrs[root]
+		sub := mgr.mgrs[rootfsName]
 		sub.unusedBundles = append(sub.unusedBundles, bundle)
 		mgr.allBundles[newNSFd] = bundle
 		return newNSFd, nil
