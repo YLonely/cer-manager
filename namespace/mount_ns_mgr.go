@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/YLonely/cer-manager/mount"
 	"golang.org/x/sys/unix"
 )
 
@@ -19,7 +20,7 @@ func init() {
 	PutNamespaceFunction(NamespaceOpRelease, MNT, depopulateRootfs)
 }
 
-func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, error) {
+func NewMountManager(capacity int, roots []string) (Manager, error) {
 	if capacity < 0 || len(roots) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
@@ -49,7 +50,7 @@ func newMountNamespaceManager(capacity int, roots []string) (namespaceManager, e
 	return nsMgr, nil
 }
 
-var _ namespaceManager = &mountNamespaceManager{}
+var _ Manager = &mountNamespaceManager{}
 
 type mountNamespaceManager struct {
 	mgrs map[string]*subManager
@@ -58,7 +59,7 @@ type mountNamespaceManager struct {
 }
 
 type subManager struct {
-	mgr    *genericNamespaceManager
+	mgr    *genericManager
 	offset int
 	// usedBundles maps namespace id to bundle dir
 	usedBundles   map[int]string
@@ -138,76 +139,84 @@ func (mgr *mountNamespaceManager) CleanUp() error {
 	return nil
 }
 
-type mount struct {
-	dest    string
-	mtype   string
-	src     string
-	options []string
-}
-
-var mounts = []mount{
+var mounts = []struct {
+	mount.Mount
+	target string
+}{
 	{
-		dest:    "/proc",
-		mtype:   "proc",
-		src:     "proc",
-		options: []string{},
+		Mount: mount.Mount{
+			Source:  "proc",
+			Type:    "proc",
+			Options: []string{},
+		},
+		target: "/proc",
 	},
 	{
-		dest:  "/dev",
-		mtype: "devtmpfs",
-		src:   "udev",
-		options: []string{
-			"nosuid",
-			"strictatime",
-			"mode=755",
-			"size=65536k",
+		Mount: mount.Mount{
+			Source: "udev",
+			Type:   "devtmpfs",
+			Options: []string{
+				"nosuid",
+				"strictatime",
+				"mode=755",
+				"size=65536k",
+			},
 		},
+		target: "/dev",
 	},
 	{
-		dest:  "/dev/pts",
-		mtype: "devpts",
-		src:   "devpts",
-		options: []string{
-			"nosuid",
-			"noexec",
-			"newinstance",
-			"ptmxmode=0666",
-			"mode=0620",
-			"gid=5",
+		Mount: mount.Mount{
+			Source: "devpts",
+			Type:   "devpts",
+			Options: []string{
+				"nosuid",
+				"noexec",
+				"newinstance",
+				"ptmxmode=0666",
+				"mode=0620",
+				"gid=5",
+			},
 		},
+		target: "/dev/pts",
 	},
 	{
-		dest:  "/dev/shm",
-		mtype: "tmpfs",
-		src:   "shm",
-		options: []string{
-			"nosuid",
-			"noexec",
-			"nodev",
-			"mode=1777",
-			"size=65536k",
+		Mount: mount.Mount{
+			Source: "shm",
+			Type:   "tmpfs",
+			Options: []string{
+				"nosuid",
+				"noexec",
+				"nodev",
+				"mode=1777",
+				"size=65536k",
+			},
 		},
+		target: "/dev/shm",
 	},
 	{
-		dest:  "/dev/mqueue",
-		mtype: "mqueue",
-		src:   "mqueue",
-		options: []string{
-			"nosuid",
-			"noexec",
-			"nodev",
+		Mount: mount.Mount{
+			Source: "mqueue",
+			Type:   "mqueue",
+			Options: []string{
+				"nosuid",
+				"noexec",
+				"nodev",
+			},
 		},
+		target: "/dev/mqueue",
 	},
 	{
-		dest:  "/sys",
-		mtype: "sysfs",
-		src:   "sysfs",
-		options: []string{
-			"nosuid",
-			"noexec",
-			"nodev",
-			"ro",
+		Mount: mount.Mount{
+			Source: "sysfs",
+			Type:   "sysfs",
+			Options: []string{
+				"nosuid",
+				"noexec",
+				"nodev",
+				"ro",
+			},
 		},
+		target: "/sys",
 	},
 }
 
@@ -298,9 +307,8 @@ func populateRootfs(args ...interface{}) error {
 	}
 	//mount general fs
 	for _, m := range mounts {
-		flags, data := parseMountOptions(m.options)
-		if err := unix.Mount(m.src, path.Join(rootfs, m.dest), m.mtype, uintptr(flags), data); err != nil {
-			return errors.Wrapf(err, "mount(%s,%s,%s,%d,%s) failed", m.src, path.Join(rootfs, m.dest), m.mtype, flags, data)
+		if err := m.Mount.Mount(path.Join(rootfs, m.target)); err != nil {
+			return errors.Wrapf(err, "mount(src:%s,dest:%s,type:%s) failed", m.Source, path.Join(rootfs, m.target), m.Type)
 		}
 	}
 	//make readonly paths
@@ -339,7 +347,7 @@ func depopulateRootfs(args ...interface{}) error {
 	rootfs := path.Join(bundle, "rootfs")
 	paths := append(maskedPaths, readonlyPaths...)
 	for i := len(mounts) - 1; i >= 0; i-- {
-		paths = append(paths, mounts[i].dest)
+		paths = append(paths, mounts[i].target)
 	}
 	// umount all the mount point in rootfs
 	for _, p := range paths {

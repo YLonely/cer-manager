@@ -37,7 +37,7 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	namespaceSvr, err := namespace.NewNamespaceService(DefautlBundlePath)
+	namespaceSvr, err := namespace.NewService(DefautlBundlePath)
 	if err != nil {
 		return nil, err
 	}

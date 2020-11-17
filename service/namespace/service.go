@@ -9,6 +9,7 @@ import (
 	"path"
 
 	"github.com/YLonely/cer-manager/log"
+	"github.com/YLonely/cer-manager/namespace"
 	"github.com/YLonely/cer-manager/service"
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/pkg/errors"
@@ -20,12 +21,12 @@ const (
 )
 
 type GetNamespaceRequest struct {
-	T   NamespaceType
+	T   namespace.NamespaceType
 	Arg interface{}
 }
 
 type PutNamespaceRequest struct {
-	T  NamespaceType
+	T  namespace.NamespaceType
 	ID int
 }
 
@@ -40,7 +41,7 @@ type GetNamespaceResponse struct {
 	Info interface{}
 }
 
-func NewNamespaceService(root string) (service.Service, error) {
+func New(root string) (service.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
 	config := defaultConfig()
@@ -61,13 +62,13 @@ func NewNamespaceService(root string) (service.Service, error) {
 	}
 	return &namespaceService{
 		config:   config,
-		managers: map[NamespaceType]namespaceManager{},
+		managers: map[namespace.NamespaceType]manager{},
 	}, nil
 }
 
 type namespaceService struct {
 	config   serviceConfig
-	managers map[NamespaceType]namespaceManager
+	managers map[NamespaceType]manager
 }
 
 var _ service.Service = &namespaceService{}

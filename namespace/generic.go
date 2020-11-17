@@ -7,11 +7,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func newGenericNamespaceManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (fd int, err error)) (*genericNamespaceManager, error) {
+func newGenericManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (fd int, err error)) (*genericManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
-	manager := &genericNamespaceManager{
+	manager := &genericManager{
 		capacity:         capacity,
 		usedNS:           map[int]int{},
 		unusedNS:         map[int]int{},
@@ -25,7 +25,7 @@ func newGenericNamespaceManager(capacity int, t NamespaceType, newNamespaceFunc 
 	return manager, nil
 }
 
-type genericNamespaceManager struct {
+type genericManager struct {
 	capacity         int
 	usedNS           map[int]int
 	unusedNS         map[int]int
@@ -35,9 +35,9 @@ type genericNamespaceManager struct {
 	newNamespaceFunc func(NamespaceType) (int, error)
 }
 
-var _ namespaceManager = &genericNamespaceManager{}
+var _ Manager = &genericManager{}
 
-func (mgr *genericNamespaceManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
+func (mgr *genericManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	if len(mgr.unusedNS) > 0 {
@@ -51,7 +51,7 @@ func (mgr *genericNamespaceManager) Get(interface{}) (id int, newNSFd int, info 
 	return
 }
 
-func (mgr *genericNamespaceManager) Put(id int) error {
+func (mgr *genericManager) Put(id int) error {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	if fd, exists := mgr.usedNS[id]; !exists {
@@ -63,11 +63,11 @@ func (mgr *genericNamespaceManager) Put(id int) error {
 	return nil
 }
 
-func (mgr *genericNamespaceManager) Update(config interface{}) error {
+func (mgr *genericManager) Update(config interface{}) error {
 	return nil
 }
 
-func (mgr *genericNamespaceManager) CleanUp() error {
+func (mgr *genericManager) CleanUp() error {
 	var err error
 	fds := make([]int, 0, mgr.capacity)
 	for _, fd := range mgr.usedNS {
@@ -88,7 +88,7 @@ func (mgr *genericNamespaceManager) CleanUp() error {
 	return err
 }
 
-func (mgr *genericNamespaceManager) init() (err error) {
+func (mgr *genericManager) init() (err error) {
 	var newNSFd int
 	defer func() {
 		if err != nil {

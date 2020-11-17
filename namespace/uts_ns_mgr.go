@@ -1,7 +1,7 @@
 package namespace
 
-func newUTSNamespaceManager(capacity int) (namespaceManager, error) {
-	if mgr, err := newGenericNamespaceManager(capacity, UTS, genericCreateNewNamespace); err != nil {
+func NewUTSManager(capacity int) (Manager, error) {
+	if mgr, err := newGenericManager(capacity, UTS, genericCreateNewNamespace); err != nil {
 		return nil, err
 	} else {
 		return mgr, nil
