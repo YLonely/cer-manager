@@ -20,7 +20,7 @@ func NewCERManagerClient(config Config) (*Client, error) {
 
 func NewDefaultClient() (*Client, error) {
 	return NewCERManagerClient(Config{
-		SocketPath: filepath.Join(cermanager.DefautlBundlePath, cermanager.DefaultSocketName),
+		SocketPath: filepath.Join(cermanager.DefaultRootPath, cermanager.DefaultSocketName),
 	})
 }
 

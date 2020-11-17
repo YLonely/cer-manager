@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/YLonely/cer-manager/mount"
+	"github.com/YLonely/cer-manager/rootfs"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,42 +21,70 @@ func init() {
 	PutNamespaceFunction(NamespaceOpRelease, MNT, depopulateRootfs)
 }
 
-func NewMountManager(capacity int, roots []string) (Manager, error) {
-	if capacity < 0 || len(roots) == 0 {
+func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider) (Manager, error) {
+	if capacity < 0 || len(rootfsNames) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
-	nsMgr := &mountNamespaceManager{
+	offset := 0
+	var mounts []mount.Mount
+	var overlays []mount.Overlay
+	var err error
+	rootfsParentDir := path.Join(root, "rootfs")
+	if err = os.MkdirAll(rootfsParentDir, 0755); err != nil {
+		return nil, errors.Wrap(err, "failed to create rootfs dir")
+	}
+	nsMgr := &mountManager{
 		mgrs:       map[string]*subManager{},
 		allBundles: map[int]string{},
+		provider:   provider,
 	}
-	offset := 0
-	for _, root := range roots {
-		parts := strings.Split(root, ",")
-		if len(parts) != 2 {
-			return nil, errors.Errorf("invalid format of extra args %s for mount namespace manager, expect format is \"rootfs_name,rootfs_path\"", root)
+	for _, name := range rootfsNames {
+		mounts, err = provider.Prepare(name, name+"-rootfsKey")
+		if err != nil {
+			return nil, errors.Wrap(err, "error prepare rootfs for "+name)
 		}
-		rootfsName, rootfsPath := parts[0], parts[1]
-		rootfsPath = strings.TrimSuffix(rootfsPath, "/")
-		nsMgr.mgrs[rootfsName] = &subManager{
+		if len(mounts) == 0 {
+			return nil, errors.New("empty mount stack")
+		}
+		rootfsDir := path.Join(rootfsParentDir, name)
+		if err = os.MkdirAll(rootfsDir, 0755); err != nil {
+			return nil, errors.Wrap(err, "error create dir for "+name)
+		}
+		overlays, err = mount.ToOverlays(mounts)
+		if err != nil && err != mount.OverlayTypeMismatchError {
+			return nil, errors.Wrap(err, "failed to convert mounts")
+		}
+		if err == nil {
+			makeOverlaysReadOnly(overlays)
+			if err = mount.MountAllOverlays(overlays, rootfsDir); err != nil {
+				return nil, errors.Wrap(err, "failed to mount overlay")
+			}
+		} else {
+			if err = mount.MountAll(mounts, rootfsDir); err != nil {
+				return nil, errors.Wrap(err, "failed to mount")
+			}
+		}
+		nsMgr.mgrs[name] = &subManager{
 			offset:      offset,
 			usedBundles: map[int]string{},
 		}
-		if mgr, err := newGenericNamespaceManager(capacity, MNT, nsMgr.makeCreateNewNamespace(rootfsName, rootfsPath)); err != nil {
+		if mgr, err := newGenericManager(capacity, MNT, nsMgr.makeCreateNewNamespace(name, rootfsDir)); err != nil {
 			return nil, err
 		} else {
-			nsMgr.mgrs[rootfsName].mgr = mgr
+			nsMgr.mgrs[name].mgr = mgr
 		}
 		offset++
 	}
 	return nsMgr, nil
 }
 
-var _ Manager = &mountNamespaceManager{}
+var _ Manager = &mountManager{}
 
-type mountNamespaceManager struct {
+type mountManager struct {
 	mgrs map[string]*subManager
 	// allBundles maps namespace fd to it's bundle path
 	allBundles map[int]string
+	provider   rootfs.Provider
 }
 
 type subManager struct {
@@ -67,7 +96,7 @@ type subManager struct {
 	mutex         sync.Mutex
 }
 
-func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, error) {
+func (mgr *mountManager) Get(arg interface{}) (int, int, interface{}, error) {
 	rootfsName := arg.(string)
 	rootfsName = strings.TrimSuffix(rootfsName, "/")
 	if sub, exists := mgr.mgrs[rootfsName]; exists {
@@ -90,7 +119,7 @@ func (mgr *mountNamespaceManager) Get(arg interface{}) (int, int, interface{}, e
 	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", rootfsName)
 }
 
-func (mgr *mountNamespaceManager) Put(id int) error {
+func (mgr *mountManager) Put(id int) error {
 	offset := id % len(mgr.mgrs)
 	for _, sub := range mgr.mgrs {
 		if sub.offset == offset {
@@ -112,11 +141,11 @@ func (mgr *mountNamespaceManager) Put(id int) error {
 	return nil
 }
 
-func (mgr *mountNamespaceManager) Update(interface{}) error {
+func (mgr *mountManager) Update(interface{}) error {
 	return nil
 }
 
-func (mgr *mountNamespaceManager) CleanUp() error {
+func (mgr *mountManager) CleanUp() error {
 	var failed []string
 	for fd, bundle := range mgr.allBundles {
 		helper, err := newNamespaceReleaseHelper(MNT, os.Getpid(), fd, bundle)
@@ -263,7 +292,7 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountNamespaceManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (int, error) {
+func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (int, error) {
 	return func(t NamespaceType) (int, error) {
 		bundle, err := createBundle()
 		if err != nil {
@@ -395,4 +424,13 @@ func parseMountOptions(options []string) (int, string) {
 	}
 	data := strings.Join(datas, ",")
 	return flag, data
+}
+
+func makeOverlaysReadOnly(os []mount.Overlay) {
+	n := len(os)
+	last := os[n-1]
+	upper, lowers := last.UpperDir, last.LowerDirs
+	last.SetUpper("")
+	last.SetWork("")
+	last.SetLowers(append(lowers, upper))
 }

@@ -4,18 +4,19 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/YLonely/cer-manager/namespace"
-	"github.com/YLonely/cer-manager/service"
+	ns "github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/services"
+	"github.com/YLonely/cer-manager/services/namespace"
 	"github.com/YLonely/cer-manager/utils"
 )
 
-func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {
+func (client *Client) GetNamespace(t ns.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {
 	req := namespace.GetNamespaceRequest{
 		T:   t,
 		Arg: arg,
 	}
 	var data []byte
-	data, err = utils.Pack(service.NamespaceService, namespace.MethodGetNamespace, req)
+	data, err = utils.Pack(services.NamespaceService, namespace.MethodGetNamespace, req)
 	if err != nil {
 		return
 	}
@@ -35,12 +36,12 @@ func (client *Client) GetNamespace(t namespace.NamespaceType, arg interface{}) (
 	return
 }
 
-func (client *Client) PutNamespace(t namespace.NamespaceType, nsID int) error {
+func (client *Client) PutNamespace(t ns.NamespaceType, nsID int) error {
 	req := namespace.PutNamespaceRequest{
 		T:  t,
 		ID: nsID,
 	}
-	data, err := utils.Pack(service.NamespaceService, namespace.MethodPutNamespace, req)
+	data, err := utils.Pack(services.NamespaceService, namespace.MethodPutNamespace, req)
 	if err != nil {
 		return err
 	}

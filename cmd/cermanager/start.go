@@ -7,7 +7,7 @@ import (
 
 	"github.com/YLonely/cer-manager/cermanager"
 	"github.com/YLonely/cer-manager/log"
-	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/signals"
 	"github.com/urfave/cli"
 )
@@ -25,10 +25,10 @@ var startCommand = cli.Command{
 		errorC := s.Start(ctx)
 		signal.Notify(signalC, signals.HandledSignals...)
 		done := signals.HandleSignals(signalC, errorC)
-		log.Logger(service.MainService, "").Info("Daemon started")
+		log.Logger(services.MainService, "").Info("Daemon started")
 		<-done
 		cancel()
-		log.Logger(service.MainService, "").Info("Shutting down")
+		log.Logger(services.MainService, "").Info("Shutting down")
 		s.Shutdown()
 		return nil
 	},

@@ -9,7 +9,7 @@ import (
 	"math"
 	"net"
 
-	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/services"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 	serviceType     methodLen      method      requestLen      request
    |___1byte__|_______4byte______|_________|_______4byte_____|__________|
 */
-func Pack(st service.ServiceType, method string, request interface{}) ([]byte, error) {
+func Pack(st services.ServiceType, method string, request interface{}) ([]byte, error) {
 	svrTypeBinary, err := WriteBinary(st)
 	if err != nil {
 		return nil, err
@@ -100,10 +100,10 @@ func ReceiveData(c net.Conn, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
-func ReceiveServiceType(c net.Conn) (service.ServiceType, error) {
-	data := make([]byte, service.ServiceTypePrefixLen)
+func ReceiveServiceType(c net.Conn) (services.ServiceType, error) {
+	data := make([]byte, services.ServiceTypePrefixLen)
 	if _, err := io.ReadFull(c, data); err != nil {
 		return 0, err
 	}
-	return service.ServiceType(binary.BigEndian.Uint16(data)), nil
+	return services.ServiceType(binary.BigEndian.Uint16(data)), nil
 }

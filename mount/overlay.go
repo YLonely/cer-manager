@@ -9,9 +9,9 @@ import (
 // Overlay represents a overlay mount
 type Overlay struct {
 	Mount
-	upperDir  string
-	workDir   string
-	lowerDirs []string
+	UpperDir  string
+	WorkDir   string
+	LowerDirs []string
 }
 
 var (
@@ -26,9 +26,9 @@ const (
 
 func NewOverlay(lowers []string, upper string, work string, options ...string) Overlay {
 	ret := Overlay{
-		lowerDirs: lowers,
-		upperDir:  upper,
-		workDir:   work,
+		LowerDirs: lowers,
+		UpperDir:  upper,
+		WorkDir:   work,
 	}
 	opts := []string{
 		lowerPrefix + strings.Join(lowers, ":"),
@@ -42,37 +42,34 @@ func NewOverlay(lowers []string, upper string, work string, options ...string) O
 	return ret
 }
 
-func (o *Overlay) Upper() string {
-	return o.upperDir
-}
-
-func (o *Overlay) Work() string {
-	return o.workDir
-}
-
-func (o *Overlay) Lowers() []string {
-	return o.lowerDirs
-}
-
 func (o *Overlay) SetUpper(upper string) {
-	o.upperDir = upper
+	o.UpperDir = upper
 	o.setOptions(upperPrefix, upper)
 }
 
 func (o *Overlay) SetWork(work string) {
-	o.workDir = work
+	o.WorkDir = work
 	o.setOptions(workPrefix, work)
 }
 
 func (o *Overlay) SetLowers(lowers []string) {
-	o.lowerDirs = lowers
+	if len(lowers) == 0 {
+		return
+	}
+	o.LowerDirs = lowers
 	o.setOptions(lowerPrefix, strings.Join(lowers, ":"))
 }
 
 func (o *Overlay) setOptions(prefix, value string) {
 	for i, str := range o.Options {
 		if strings.HasPrefix(str, prefix) {
-			o.Options[i] = prefix + value
+			if value == "" {
+				before := o.Options[:i]
+				after := o.Options[i+1:]
+				o.Options = append(before, after...)
+			} else {
+				o.Options[i] = prefix + value
+			}
 		}
 	}
 }
@@ -85,7 +82,7 @@ func ToOverlay(m Mount) (Overlay, error) {
 	ret := Overlay{
 		Mount: m,
 	}
-	ret.upperDir, ret.workDir, ret.lowerDirs, err = parseOverlayOptions(m.Options)
+	ret.UpperDir, ret.WorkDir, ret.LowerDirs, err = parseOverlayOptions(m.Options)
 	if err != nil {
 		return Overlay{}, err
 	}
@@ -102,6 +99,15 @@ func ToOverlays(ms []Mount) ([]Overlay, error) {
 		os = append(os, o)
 	}
 	return os, nil
+}
+
+func MountAllOverlays(os []Overlay, target string) error {
+	for _, o := range os {
+		if err := o.Mount.Mount(target); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseOverlayOptions(options []string) (upper string, work string, lowers []string, err error) {

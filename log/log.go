@@ -3,18 +3,18 @@ package log
 import (
 	"encoding/json"
 
-	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/services"
 	"github.com/sirupsen/logrus"
 )
 
 type logItem struct {
-	stype  service.ServiceType
+	stype  services.ServiceType
 	method string
 }
 
 var loggers = map[logItem]*logrus.Entry{}
 
-func Logger(t service.ServiceType, method string) *logrus.Entry {
+func Logger(t services.ServiceType, method string) *logrus.Entry {
 	var ret *logrus.Entry
 	item := logItem{
 		stype:  t,

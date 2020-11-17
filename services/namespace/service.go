@@ -9,8 +9,9 @@ import (
 	"path"
 
 	"github.com/YLonely/cer-manager/log"
-	"github.com/YLonely/cer-manager/namespace"
-	"github.com/YLonely/cer-manager/service"
+	ns "github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/rootfs/containerd"
+	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/pkg/errors"
 )
@@ -21,12 +22,12 @@ const (
 )
 
 type GetNamespaceRequest struct {
-	T   namespace.NamespaceType
+	T   ns.NamespaceType
 	Arg interface{}
 }
 
 type PutNamespaceRequest struct {
-	T  namespace.NamespaceType
+	T  ns.NamespaceType
 	ID int
 }
 
@@ -41,7 +42,7 @@ type GetNamespaceResponse struct {
 	Info interface{}
 }
 
-func New(root string) (service.Service, error) {
+func New(root string) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
 	config := defaultConfig()
@@ -62,29 +63,40 @@ func New(root string) (service.Service, error) {
 	}
 	return &namespaceService{
 		config:   config,
-		managers: map[namespace.NamespaceType]manager{},
+		managers: map[ns.NamespaceType]ns.Manager{},
+		root:     root,
 	}, nil
 }
 
 type namespaceService struct {
 	config   serviceConfig
-	managers map[NamespaceType]manager
+	managers map[ns.NamespaceType]ns.Manager
+	root     string
 }
 
-var _ service.Service = &namespaceService{}
+var _ services.Service = &namespaceService{}
 
 func (svr *namespaceService) Init() error {
 	var err error
-	if svr.managers[UTS], err = newUTSNamespaceManager(svr.config.Capacity[UTS]); err != nil {
+	if svr.managers[ns.UTS], err = ns.NewUTSManager(svr.root, svr.config.Capacity[ns.UTS]); err != nil {
 		return err
 	}
-	if svr.managers[IPC], err = newIPCNamespaceManager(svr.config.Capacity[IPC]); err != nil {
+	if svr.managers[ns.IPC], err = ns.NewIPCManager(svr.root, svr.config.Capacity[ns.IPC]); err != nil {
 		return err
 	}
-	if svr.managers[MNT], err = newMountNamespaceManager(svr.config.Capacity[MNT], svr.config.ExtraArgs[MNT]); err != nil {
+	p, err := containerd.NewProvider()
+	if err != nil {
 		return err
 	}
-	log.Logger(service.NamespaceService, "Init").Info("Service initialized")
+	if svr.managers[ns.MNT], err = ns.NewMountManager(
+		svr.root,
+		svr.config.Capacity[ns.MNT],
+		svr.config.ExtraArgs[ns.MNT],
+		p,
+	); err != nil {
+		return err
+	}
+	log.Logger(services.NamespaceService, "Init").Info("Service initialized")
 	return nil
 }
 
@@ -92,13 +104,13 @@ func (svr *namespaceService) Handle(ctx context.Context, conn net.Conn) {
 	var methodType string
 	err := utils.ReceiveData(conn, &methodType)
 	if err != nil {
-		log.Logger(service.NamespaceService, "").WithError(err).Error()
+		log.Logger(services.NamespaceService, "").WithError(err).Error()
 		conn.Close()
 		return
 	}
 	err = svr.handleRequest(methodType, conn)
 	if err != nil {
-		log.Logger(service.NamespaceService, "").WithError(err).Error()
+		log.Logger(services.NamespaceService, "").WithError(err).Error()
 		conn.Close()
 		return
 	}
@@ -108,19 +120,19 @@ func (svr *namespaceService) Stop() error {
 	for t, mgr := range svr.managers {
 		err := mgr.CleanUp()
 		if err != nil {
-			log.Logger(service.NamespaceService, "").WithField("namespace", t).Error(err)
+			log.Logger(services.NamespaceService, "").WithField("namespace", t).Error(err)
 		}
 	}
 	return nil
 }
 
 type serviceConfig struct {
-	Capacity  map[NamespaceType]int      `json:"capacity"`
-	ExtraArgs map[NamespaceType][]string `json:"extra_args"`
+	Capacity  map[ns.NamespaceType]int      `json:"capacity"`
+	ExtraArgs map[ns.NamespaceType][]string `json:"extra_args"`
 }
 
 func (svr *namespaceService) handleGetNamespace(conn net.Conn, r GetNamespaceRequest) error {
-	log.WithInterface(log.Logger(service.NamespaceService, "GetNamespace"), "request", r).Info()
+	log.WithInterface(log.Logger(services.NamespaceService, "GetNamespace"), "request", r).Info()
 	rsp := GetNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Fd = -1
@@ -140,12 +152,12 @@ func (svr *namespaceService) handleGetNamespace(conn net.Conn, r GetNamespaceReq
 	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(service.NamespaceService, "GetNamespace"), "response", rsp).Info()
+	log.WithInterface(log.Logger(services.NamespaceService, "GetNamespace"), "response", rsp).Info()
 	return nil
 }
 
 func (svr *namespaceService) handlePutNamespace(conn net.Conn, r PutNamespaceRequest) error {
-	log.WithInterface(log.Logger(service.NamespaceService, "PutNamespace"), "request", r).Info()
+	log.WithInterface(log.Logger(services.NamespaceService, "PutNamespace"), "request", r).Info()
 	rsp := PutNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Error = "No such namespace"
@@ -158,7 +170,7 @@ func (svr *namespaceService) handlePutNamespace(conn net.Conn, r PutNamespaceReq
 	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(service.NamespaceService, "PutNamespace"), "response", rsp).Info()
+	log.WithInterface(log.Logger(services.NamespaceService, "PutNamespace"), "response", rsp).Info()
 	return nil
 }
 
@@ -186,8 +198,7 @@ func (svr *namespaceService) handleRequest(method string, conn net.Conn) error {
 }
 
 func mergeConfig(to, from *serviceConfig) error {
-	nsTypes := []NamespaceType{IPC, UTS, MNT}
-	for _, t := range nsTypes {
+	for _, t := range []ns.NamespaceType{ns.IPC, ns.MNT, ns.UTS} {
 		if v, exists := from.Capacity[t]; exists {
 			if v < 0 {
 				return errors.New("negative namespace capacity")
@@ -203,11 +214,11 @@ func mergeConfig(to, from *serviceConfig) error {
 
 func defaultConfig() serviceConfig {
 	return serviceConfig{
-		Capacity: map[NamespaceType]int{
-			IPC: 5,
-			UTS: 5,
-			MNT: 5,
+		Capacity: map[ns.NamespaceType]int{
+			ns.IPC: 5,
+			ns.UTS: 5,
+			ns.MNT: 5,
 		},
-		ExtraArgs: map[NamespaceType][]string{},
+		ExtraArgs: map[ns.NamespaceType][]string{},
 	}
 }

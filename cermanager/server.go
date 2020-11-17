@@ -9,25 +9,25 @@ import (
 	"sync"
 
 	"github.com/YLonely/cer-manager/log"
-	"github.com/YLonely/cer-manager/namespace"
-	"github.com/YLonely/cer-manager/service"
+	"github.com/YLonely/cer-manager/services"
+	"github.com/YLonely/cer-manager/services/namespace"
 	"github.com/YLonely/cer-manager/utils"
 )
 
-const DefautlBundlePath = "/var/lib/cermanager"
+const DefaultRootPath = "/var/lib/cermanager"
 const DefaultSocketName = "daemon.socket"
 
 type Server struct {
-	services map[service.ServiceType]service.Service
+	services map[services.ServiceType]services.Service
 	listener net.Listener
 	group    sync.WaitGroup
 }
 
 func NewServer() (*Server, error) {
-	if err := os.MkdirAll(DefautlBundlePath, 0755); err != nil {
+	if err := os.MkdirAll(DefaultRootPath, 0755); err != nil {
 		return nil, err
 	}
-	socketPath := path.Join(DefautlBundlePath, DefaultSocketName)
+	socketPath := path.Join(DefaultRootPath, DefaultSocketName)
 	os.Remove(socketPath)
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
@@ -37,13 +37,13 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	namespaceSvr, err := namespace.NewService(DefautlBundlePath)
+	namespaceSvr, err := namespace.New(DefaultRootPath)
 	if err != nil {
 		return nil, err
 	}
 	svr := &Server{
-		services: map[service.ServiceType]service.Service{
-			service.NamespaceService: namespaceSvr,
+		services: map[services.ServiceType]services.Service{
+			services.NamespaceService: namespaceSvr,
 		},
 		listener: listener,
 	}
@@ -82,14 +82,14 @@ func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
 		svrType, err := utils.ReceiveServiceType(conn)
 		if err != nil {
 			if err != io.EOF {
-				log.Logger(service.MainService, "").WithError(err).Error("Can't handle service type")
+				log.Logger(services.MainService, "").WithError(err).Error("Can't handle service type")
 			}
 			conn.Close()
 			return
 		}
 		if svr, exists := s.services[svrType]; !exists {
 			conn.Close()
-			log.Logger(service.MainService, "").WithField("serviceType", svrType).Error("No such service")
+			log.Logger(services.MainService, "").WithField("serviceType", svrType).Error("No such service")
 		} else {
 			svr.Handle(ctx, conn)
 		}
@@ -105,7 +105,7 @@ func (s *Server) Shutdown() {
 	s.group.Wait()
 	for t, ss := range s.services {
 		if err := ss.Stop(); err != nil {
-			log.Logger(service.MainService, "").WithField("serviceType", t).WithError(err).Error()
+			log.Logger(services.MainService, "").WithField("serviceType", t).WithError(err).Error()
 		}
 	}
 }
