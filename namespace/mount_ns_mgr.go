@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 
@@ -58,8 +57,7 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 			return nil, errors.Wrap(err, "failed to mount")
 		}
 		nsMgr.mgrs[name] = &subManager{
-			offset:      offset,
-			usedBundles: map[int]string{},
+			offset: offset,
 		}
 		if mgr, err := newGenericManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir)); err != nil {
 			return nil, err
@@ -84,10 +82,6 @@ type mountManager struct {
 type subManager struct {
 	mgr    *genericManager
 	offset int
-	// usedBundles maps namespace id to bundle dir
-	usedBundles   map[int]string
-	unusedBundles []string
-	mutex         sync.Mutex
 }
 
 func (mgr *mountManager) Get(arg interface{}) (int, int, interface{}, error) {
@@ -99,16 +93,8 @@ func (mgr *mountManager) Get(arg interface{}) (int, int, interface{}, error) {
 			return -1, -1, nil, errors.Wrap(err, "rootfsName:"+rootfsName)
 		}
 		retID := id*len(mgr.mgrs) + sub.offset
-		sub.mutex.Lock()
-		defer sub.mutex.Unlock()
-		l := len(sub.unusedBundles)
-		if l == 0 {
-			panic("The number of the namespace and rootfs didn't match")
-		}
-		retRoot := sub.unusedBundles[l-1]
-		sub.unusedBundles = sub.unusedBundles[:l-1]
-		sub.usedBundles[id] = retRoot
-		return retID, fd, retRoot, nil
+		retBundle := mgr.allBundles[fd]
+		return retID, fd, retBundle, nil
 	}
 	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", rootfsName)
 }
@@ -120,14 +106,6 @@ func (mgr *mountManager) Put(id int) error {
 			innerID := id / len(mgr.mgrs)
 			if err := sub.mgr.Put(innerID); err != nil {
 				return err
-			}
-			sub.mutex.Lock()
-			defer sub.mutex.Unlock()
-			if root, exists := sub.usedBundles[innerID]; !exists {
-				panic("Rootfs %d isn't in use in mnt ns manager")
-			} else {
-				delete(sub.usedBundles, innerID)
-				sub.unusedBundles = append(sub.unusedBundles, root)
 			}
 			return nil
 		}
@@ -307,8 +285,6 @@ func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) f
 			return nil, errors.Wrap(err, "Can't create new mnt namespace")
 		}
 		newNSFile := helper.nsFile()
-		sub := mgr.mgrs[rootfsName]
-		sub.unusedBundles = append(sub.unusedBundles, bundle)
 		mgr.allBundles[int(newNSFile.Fd())] = bundle
 		return newNSFile, nil
 	}
