@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/pkg/errors"
 )
 
 type NamespaceFunction func(args ...interface{}) error
 
-var namespaceFunctions = map[NamespaceOpType]map[NamespaceType]NamespaceFunction{}
+var namespaceFunctions = map[NamespaceOpType]map[types.NamespaceType]NamespaceFunction{}
 
-func GetNamespaceFunction(op NamespaceOpType, t NamespaceType) NamespaceFunction {
+func GetNamespaceFunction(op NamespaceOpType, t types.NamespaceType) NamespaceFunction {
 	if functionsOfType, exists := namespaceFunctions[op]; exists {
 		if f, valid := functionsOfType[t]; valid {
 			return f
@@ -20,11 +21,11 @@ func GetNamespaceFunction(op NamespaceOpType, t NamespaceType) NamespaceFunction
 	return nil
 }
 
-func PutNamespaceFunction(op NamespaceOpType, t NamespaceType, f NamespaceFunction) {
-	var functionsOfType map[NamespaceType]NamespaceFunction
+func PutNamespaceFunction(op NamespaceOpType, t types.NamespaceType, f NamespaceFunction) {
+	var functionsOfType map[types.NamespaceType]NamespaceFunction
 	var exists bool
 	if functionsOfType, exists = namespaceFunctions[op]; !exists {
-		namespaceFunctions[op] = map[NamespaceType]NamespaceFunction{}
+		namespaceFunctions[op] = map[types.NamespaceType]NamespaceFunction{}
 		functionsOfType = namespaceFunctions[op]
 	}
 	functionsOfType[t] = f
@@ -42,22 +43,14 @@ const (
 	NamespaceReturnFormat string = "ret:%s"
 )
 
-type NamespaceType string
-
-const (
-	IPC NamespaceType = "ipc"
-	UTS NamespaceType = "uts"
-	MNT NamespaceType = "mnt"
-)
-
-func OpenNSFile(t NamespaceType, pid int) (*os.File, error) {
+func OpenNSFile(t types.NamespaceType, pid int) (*os.File, error) {
 	var nsFileName string
 	switch t {
-	case IPC:
+	case types.NamespaceIPC:
 		nsFileName = "ipc"
-	case UTS:
+	case types.NamespaceUTS:
 		nsFileName = "uts"
-	case MNT:
+	case types.NamespaceMNT:
 		nsFileName = "mnt"
 	default:
 		return nil, errors.New("invalid ns type")

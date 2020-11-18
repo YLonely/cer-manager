@@ -9,13 +9,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/pkg/errors"
 )
 
 type namespaceHelper struct {
 	newNSFile *os.File
 	cmd       *exec.Cmd
-	t         NamespaceType
+	t         types.NamespaceType
 	op        NamespaceOpType
 }
 
@@ -32,9 +33,9 @@ type arg struct {
 	value string
 }
 
-func newNamespaceCreateHelper(t NamespaceType, src, bundle string) (*namespaceHelper, error) {
+func newNamespaceCreateHelper(t types.NamespaceType, src, bundle string) (*namespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec", "create")
-	if t == MNT {
+	if t == types.NamespaceMNT {
 		cmd.Args = append(cmd.Args, "--src", src, "--bundle", bundle)
 	}
 	cmd.Args = append(cmd.Args, string(t))
@@ -50,9 +51,9 @@ func newNamespaceCreateHelper(t NamespaceType, src, bundle string) (*namespaceHe
 	}, nil
 }
 
-func newNamespaceReleaseHelper(t NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
+func newNamespaceReleaseHelper(t types.NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec", "release")
-	if t == MNT {
+	if t == types.NamespaceMNT {
 		cmd.Args = append(cmd.Args, "--bundle", bundle)
 	}
 	cmd.Args = append(cmd.Args, string(t))

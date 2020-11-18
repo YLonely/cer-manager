@@ -2,9 +2,10 @@ package client
 
 import (
 	"net"
-	"path/filepath"
+)
 
-	"github.com/YLonely/cer-manager/cermanager"
+const (
+	defaultSocketPath = "/var/lib/cermanager/daemon.socket"
 )
 
 func NewCERManagerClient(config Config) (*Client, error) {
@@ -20,7 +21,7 @@ func NewCERManagerClient(config Config) (*Client, error) {
 
 func NewDefaultClient() (*Client, error) {
 	return NewCERManagerClient(Config{
-		SocketPath: filepath.Join(cermanager.DefaultRootPath, cermanager.DefaultSocketName),
+		SocketPath: defaultSocketPath,
 	})
 }
 

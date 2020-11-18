@@ -6,11 +6,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
-func newGenericManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (f *os.File, err error)) (*genericManager, error) {
+func newGenericManager(capacity int, t types.NamespaceType, newNamespaceFunc func(types.NamespaceType) (f *os.File, err error)) (*genericManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
@@ -36,8 +37,8 @@ type genericManager struct {
 	unusedNS         map[int]*os.File
 	id               int
 	m                sync.Mutex
-	t                NamespaceType
-	newNamespaceFunc func(NamespaceType) (*os.File, error)
+	t                types.NamespaceType
+	newNamespaceFunc func(types.NamespaceType) (*os.File, error)
 }
 
 var _ Manager = &genericManager{}
@@ -114,7 +115,7 @@ func (mgr *genericManager) init() (err error) {
 	return
 }
 
-func genericCreateNewNamespace(t NamespaceType) (*os.File, error) {
+func genericCreateNewNamespace(t types.NamespaceType) (*os.File, error) {
 	h, err := newNamespaceCreateHelper(t, "", "")
 	if err != nil {
 		return nil, err
@@ -125,13 +126,13 @@ func genericCreateNewNamespace(t NamespaceType) (*os.File, error) {
 	return h.nsFile(), nil
 }
 
-func nsFlag(t NamespaceType) (int, error) {
+func nsFlag(t types.NamespaceType) (int, error) {
 	switch t {
-	case IPC:
+	case types.NamespaceIPC:
 		return unix.CLONE_NEWIPC, nil
-	case UTS:
+	case types.NamespaceUTS:
 		return unix.CLONE_NEWUTS, nil
-	case MNT:
+	case types.NamespaceMNT:
 		return unix.CLONE_NEWNS, nil
 	default:
 		return -1, errors.New("invalid ns type")

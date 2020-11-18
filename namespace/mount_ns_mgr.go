@@ -11,14 +11,15 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/mount"
 	"github.com/YLonely/cer-manager/rootfs"
 	"golang.org/x/sys/unix"
 )
 
 func init() {
-	PutNamespaceFunction(NamespaceOpCreate, MNT, populateRootfs)
-	PutNamespaceFunction(NamespaceOpRelease, MNT, depopulateRootfs)
+	PutNamespaceFunction(NamespaceOpCreate, types.NamespaceMNT, populateRootfs)
+	PutNamespaceFunction(NamespaceOpRelease, types.NamespaceMNT, depopulateRootfs)
 }
 
 func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider) (Manager, error) {
@@ -60,7 +61,7 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 			offset:      offset,
 			usedBundles: map[int]string{},
 		}
-		if mgr, err := newGenericManager(capacity, MNT, nsMgr.makeCreateNewNamespace(name, rootfsDir)); err != nil {
+		if mgr, err := newGenericManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir)); err != nil {
 			return nil, err
 		} else {
 			nsMgr.mgrs[name].mgr = mgr
@@ -141,7 +142,7 @@ func (mgr *mountManager) Update(interface{}) error {
 func (mgr *mountManager) CleanUp() error {
 	var failed []string
 	for fd, bundle := range mgr.allBundles {
-		helper, err := newNamespaceReleaseHelper(MNT, os.Getpid(), fd, bundle)
+		helper, err := newNamespaceReleaseHelper(types.NamespaceMNT, os.Getpid(), fd, bundle)
 		if err != nil {
 			failed = append(failed, fmt.Sprintf("Failed to create ns helper for fd %d and bundle %s with error %s", fd, bundle, err.Error()))
 			continue
@@ -294,8 +295,8 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (*os.File, error) {
-	return func(t NamespaceType) (*os.File, error) {
+func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(types.NamespaceType) (*os.File, error) {
+	return func(t types.NamespaceType) (*os.File, error) {
 		bundle, err := createBundle()
 		if err != nil {
 			return nil, errors.Wrap(err, "Can't create bundle for "+rootfsName)

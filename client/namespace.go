@@ -4,13 +4,13 @@ import (
 	"errors"
 	"fmt"
 
-	ns "github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/api/services/namespace"
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/services"
-	"github.com/YLonely/cer-manager/services/namespace"
 	"github.com/YLonely/cer-manager/utils"
 )
 
-func (client *Client) GetNamespace(t ns.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {
+func (client *Client) GetNamespace(t types.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {
 	req := namespace.GetNamespaceRequest{
 		T:   t,
 		Arg: arg,
@@ -36,7 +36,7 @@ func (client *Client) GetNamespace(t ns.NamespaceType, arg interface{}) (namespa
 	return
 }
 
-func (client *Client) PutNamespace(t ns.NamespaceType, nsID int) error {
+func (client *Client) PutNamespace(t types.NamespaceType, nsID int) error {
 	req := namespace.PutNamespaceRequest{
 		T:  t,
 		ID: nsID,

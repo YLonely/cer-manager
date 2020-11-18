@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/namespace"
 	_ "github.com/YLonely/cer-manager/nsenter"
 	"github.com/urfave/cli"
@@ -38,7 +39,7 @@ var createCommand = cli.Command{
 			printError("Namespace type must be provided\n")
 			return nil
 		}
-		f := namespace.GetNamespaceFunction(namespace.NamespaceOpCreate, namespace.NamespaceType(t))
+		f := namespace.GetNamespaceFunction(namespace.NamespaceOpCreate, types.NamespaceType(t))
 		if f != nil {
 			err := f(context.String("src"), context.String("bundle"))
 			if err != nil {
@@ -71,7 +72,7 @@ var releaseCommand = cli.Command{
 			printError("Namespace type must be provided\n")
 			return nil
 		}
-		f := namespace.GetNamespaceFunction(namespace.NamespaceOpRelease, namespace.NamespaceType(t))
+		f := namespace.GetNamespaceFunction(namespace.NamespaceOpRelease, types.NamespaceType(t))
 		if f != nil {
 			err := f(context.String("bundle"))
 			if err != nil {
