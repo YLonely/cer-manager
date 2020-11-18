@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -12,10 +13,10 @@ import (
 )
 
 type namespaceHelper struct {
-	newNSFd int
-	cmd     *exec.Cmd
-	t       NamespaceType
-	op      NamespaceOpType
+	newNSFile *os.File
+	cmd       *exec.Cmd
+	t         NamespaceType
+	op        NamespaceOpType
 }
 
 const (
@@ -43,10 +44,9 @@ func newNamespaceCreateHelper(t NamespaceType, src, bundle string) (*namespaceHe
 		nsexecNSTypeKey+"="+string(t),
 	)
 	return &namespaceHelper{
-		cmd:     cmd,
-		newNSFd: -1,
-		t:       t,
-		op:      NamespaceOpCreate,
+		cmd: cmd,
+		t:   t,
+		op:  NamespaceOpCreate,
 	}, nil
 }
 
@@ -63,10 +63,9 @@ func newNamespaceReleaseHelper(t NamespaceType, pid int, fd int, bundle string) 
 		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", pid, fd),
 	)
 	return &namespaceHelper{
-		cmd:     cmd,
-		newNSFd: -1,
-		t:       t,
-		op:      NamespaceOpRelease,
+		cmd: cmd,
+		t:   t,
+		op:  NamespaceOpRelease,
 	}, nil
 }
 
@@ -106,17 +105,17 @@ func (helper *namespaceHelper) do() error {
 		if pid != helper.cmd.Process.Pid {
 			return errors.Errorf("Pid didn't match %d %d", pid, helper.cmd.Process.Pid)
 		}
-		fd, err := OpenNSFd(helper.t, pid)
+		f, err := OpenNSFile(helper.t, pid)
 		if err != nil {
 			return errors.Wrap(err, "Can't open ns file")
 		}
-		helper.newNSFd = fd
+		helper.newNSFile = f
 		// tell child process that it can exits
 		io.WriteString(stdin, "OK\n")
 	}
 	return nil
 }
 
-func (helper *namespaceHelper) getFd() int {
-	return helper.newNSFd
+func (helper *namespaceHelper) nsFile() *os.File {
+	return helper.newNSFile
 }

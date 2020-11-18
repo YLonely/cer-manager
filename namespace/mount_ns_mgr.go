@@ -27,13 +27,13 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 	}
 	offset := 0
 	var mounts []mount.Mount
-	var overlays []mount.Overlay
 	var err error
 	rootfsParentDir := path.Join(root, "rootfs")
 	if err = os.MkdirAll(rootfsParentDir, 0755); err != nil {
 		return nil, errors.Wrap(err, "failed to create rootfs dir")
 	}
 	nsMgr := &mountManager{
+		root:       root,
 		mgrs:       map[string]*subManager{},
 		allBundles: map[int]string{},
 		provider:   provider,
@@ -50,19 +50,11 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		if err = os.MkdirAll(rootfsDir, 0755); err != nil {
 			return nil, errors.Wrap(err, "error create dir for "+name)
 		}
-		overlays, err = mount.ToOverlays(mounts)
-		if err != nil && err != mount.OverlayTypeMismatchError {
-			return nil, errors.Wrap(err, "failed to convert mounts")
+		if isOverlayMounts(mounts) {
+			makeOverlaysReadOnly(mounts)
 		}
-		if err == nil {
-			makeOverlaysReadOnly(overlays)
-			if err = mount.MountAllOverlays(overlays, rootfsDir); err != nil {
-				return nil, errors.Wrap(err, "failed to mount overlay")
-			}
-		} else {
-			if err = mount.MountAll(mounts, rootfsDir); err != nil {
-				return nil, errors.Wrap(err, "failed to mount")
-			}
+		if err = mount.MountAll(mounts, rootfsDir); err != nil {
+			return nil, errors.Wrap(err, "failed to mount")
 		}
 		nsMgr.mgrs[name] = &subManager{
 			offset:      offset,
@@ -85,6 +77,7 @@ type mountManager struct {
 	// allBundles maps namespace fd to it's bundle path
 	allBundles map[int]string
 	provider   rootfs.Provider
+	root       string
 }
 
 type subManager struct {
@@ -157,9 +150,18 @@ func (mgr *mountManager) CleanUp() error {
 			failed = append(failed, fmt.Sprintf("Failed to execute helper for fd %d and bundle %s with error %s", fd, bundle, err.Error()))
 		}
 	}
-	for _, sub := range mgr.mgrs {
+	rootfsParentDir := path.Join(mgr.root, "rootfs")
+	for name, sub := range mgr.mgrs {
+		// umount the rootfs with name
+		rootfsDir := path.Join(rootfsParentDir, name)
+		if err := mount.UnmountAll(rootfsDir, 0); err != nil {
+			failed = append(failed, fmt.Sprintf("umount rootfs %s with error %s", rootfsDir, err.Error()))
+		}
+		if err := mgr.provider.Remove(name + "-rootfsKey"); err != nil {
+			failed = append(failed, fmt.Sprintf("remove rootfs %s with error %s", name, err.Error()))
+		}
 		if err := sub.mgr.CleanUp(); err != nil {
-			failed = append(failed, "Failed to cleanup sub manager")
+			failed = append(failed, fmt.Sprintf("cleanup sub-manager %s with error %s", name, err.Error()))
 		}
 	}
 	if len(failed) != 0 {
@@ -292,22 +294,22 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (int, error) {
-	return func(t NamespaceType) (int, error) {
+func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(NamespaceType) (*os.File, error) {
+	return func(t NamespaceType) (*os.File, error) {
 		bundle, err := createBundle()
 		if err != nil {
-			return -1, errors.Wrap(err, "Can't create bundle for "+rootfsName)
+			return nil, errors.Wrap(err, "Can't create bundle for "+rootfsName)
 		}
 		//call the namespace helper to create the ns
 		helper, err := newNamespaceCreateHelper(t, rootfsPath, bundle)
 		if err = helper.do(); err != nil {
-			return -1, errors.Wrap(err, "Can't create new mnt namespace")
+			return nil, errors.Wrap(err, "Can't create new mnt namespace")
 		}
-		newNSFd := helper.getFd()
+		newNSFile := helper.nsFile()
 		sub := mgr.mgrs[rootfsName]
 		sub.unusedBundles = append(sub.unusedBundles, bundle)
-		mgr.allBundles[newNSFd] = bundle
-		return newNSFd, nil
+		mgr.allBundles[int(newNSFile.Fd())] = bundle
+		return newNSFile, nil
 	}
 }
 
@@ -330,9 +332,15 @@ func populateRootfs(args ...interface{}) error {
 	}
 	// mount the src dir to rootfs dir in bundle
 	rootfs := path.Join(bundle, "rootfs")
-	mountData := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", src, path.Join(bundle, "upper"), path.Join(bundle, "work"))
-	if err := unix.Mount("overlay", rootfs, "overlay", uintptr(0), mountData); err != nil {
-		return errors.Wrapf(err, "mount(overlay,%s,overlay,0,%s) failed", rootfs, mountData)
+	m := mount.Mount{
+		Source: "overlay",
+		Type:   "overlay",
+	}
+	m.SetWork(path.Join(bundle, "work"))
+	m.SetUpper(path.Join(bundle, "upper"))
+	m.SetLowers([]string{src})
+	if err := m.Mount(rootfs); err != nil {
+		return errors.Wrapf(err, "mount rootfs %s with overlay failed", rootfs)
 	}
 	//mount general fs
 	for _, m := range mounts {
@@ -399,38 +407,16 @@ func depopulateRootfs(args ...interface{}) error {
 	return nil
 }
 
-func parseMountOptions(options []string) (int, string) {
-	flags := map[string]int{
-		"async":       unix.MS_ASYNC,
-		"noatime":     unix.MS_NOATIME,
-		"nodev":       unix.MS_NODEV,
-		"nodiratime":  unix.MS_NODIRATIME,
-		"dirsync":     unix.MS_DIRSYNC,
-		"noexec":      unix.MS_NOEXEC,
-		"relatime":    unix.MS_RELATIME,
-		"strictatime": unix.MS_STRICTATIME,
-		"nosuid":      unix.MS_NOSUID,
-		"ro":          unix.MS_RDONLY,
-		"sync":        unix.MS_SYNC,
-	}
-	flag := 0
-	datas := []string{}
-	for _, option := range options {
-		if v, exists := flags[option]; exists {
-			flag |= v
-		} else {
-			datas = append(datas, option)
-		}
-	}
-	data := strings.Join(datas, ",")
-	return flag, data
-}
-
-func makeOverlaysReadOnly(os []mount.Overlay) {
-	n := len(os)
-	last := os[n-1]
-	upper, lowers := last.UpperDir, last.LowerDirs
+func makeOverlaysReadOnly(ms []mount.Mount) {
+	n := len(ms)
+	last := ms[n-1]
+	upper, lowers := last.Upper(), last.Lowers()
 	last.SetUpper("")
 	last.SetWork("")
 	last.SetLowers(append(lowers, upper))
+}
+
+func isOverlayMounts(ms []mount.Mount) bool {
+	n := len(ms)
+	return ms[n-1].IsOverlay()
 }

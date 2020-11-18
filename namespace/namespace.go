@@ -50,7 +50,7 @@ const (
 	MNT NamespaceType = "mnt"
 )
 
-func OpenNSFd(t NamespaceType, pid int) (int, error) {
+func OpenNSFile(t NamespaceType, pid int) (*os.File, error) {
 	var nsFileName string
 	switch t {
 	case IPC:
@@ -60,12 +60,12 @@ func OpenNSFd(t NamespaceType, pid int) (int, error) {
 	case MNT:
 		nsFileName = "mnt"
 	default:
-		return -1, errors.New("invalid ns type")
+		return nil, errors.New("invalid ns type")
 	}
 	nsFilePath := fmt.Sprintf("/proc/%d/ns/%s", pid, nsFileName)
 	f, err := os.Open(nsFilePath)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
-	return int(f.Fd()), nil
+	return f, nil
 }

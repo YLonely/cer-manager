@@ -1,20 +1,23 @@
 package namespace
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
-func newGenericManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (fd int, err error)) (*genericManager, error) {
+func newGenericManager(capacity int, t NamespaceType, newNamespaceFunc func(NamespaceType) (f *os.File, err error)) (*genericManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
 	manager := &genericManager{
 		capacity:         capacity,
-		usedNS:           map[int]int{},
-		unusedNS:         map[int]int{},
+		usedNS:           map[int]*os.File{},
+		unusedNS:         map[int]*os.File{},
 		t:                t,
 		id:               0,
 		newNamespaceFunc: newNamespaceFunc,
@@ -26,24 +29,28 @@ func newGenericManager(capacity int, t NamespaceType, newNamespaceFunc func(Name
 }
 
 type genericManager struct {
-	capacity         int
-	usedNS           map[int]int
-	unusedNS         map[int]int
+	capacity int
+	// usedNS maps id to already used namespaces
+	usedNS map[int]*os.File
+	// unusedNS maps id to unused namespaces
+	unusedNS         map[int]*os.File
 	id               int
 	m                sync.Mutex
 	t                NamespaceType
-	newNamespaceFunc func(NamespaceType) (int, error)
+	newNamespaceFunc func(NamespaceType) (*os.File, error)
 }
 
 var _ Manager = &genericManager{}
 
 func (mgr *genericManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
+	var f *os.File
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	if len(mgr.unusedNS) > 0 {
-		for id, newNSFd = range mgr.unusedNS {
+		for id, f = range mgr.unusedNS {
 			delete(mgr.unusedNS, id)
-			mgr.usedNS[id] = newNSFd
+			mgr.usedNS[id] = f
+			newNSFd = int(f.Fd())
 			return
 		}
 	}
@@ -54,11 +61,11 @@ func (mgr *genericManager) Get(interface{}) (id int, newNSFd int, info interface
 func (mgr *genericManager) Put(id int) error {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
-	if fd, exists := mgr.usedNS[id]; !exists {
+	if f, exists := mgr.usedNS[id]; !exists {
 		return errors.Errorf("Namespace %d does not exists", id)
 	} else {
 		delete(mgr.usedNS, id)
-		mgr.unusedNS[id] = fd
+		mgr.unusedNS[id] = f
 	}
 	return nil
 }
@@ -68,28 +75,27 @@ func (mgr *genericManager) Update(config interface{}) error {
 }
 
 func (mgr *genericManager) CleanUp() error {
-	var err error
-	fds := make([]int, 0, mgr.capacity)
-	for _, fd := range mgr.usedNS {
-		fds = append(fds, fd)
+	var failed []string
+	files := make([]*os.File, 0, mgr.capacity)
+	for _, f := range mgr.usedNS {
+		files = append(files, f)
 	}
-	for _, fd := range mgr.unusedNS {
-		fds = append(fds, fd)
+	for _, f := range mgr.unusedNS {
+		files = append(files, f)
 	}
-	for _, fd := range fds {
-		if errClose := unix.Close(fd); errClose != nil {
-			if err != nil {
-				err = errors.Wrap(err, errClose.Error())
-			} else {
-				err = errClose
-			}
+	for _, f := range files {
+		if err := f.Close(); err != nil {
+			failed = append(failed, fmt.Sprintf("%s %d", err.Error(), int(f.Fd())))
 		}
 	}
-	return err
+	if len(failed) != 0 {
+		return errors.New(strings.Join(failed, ";"))
+	}
+	return nil
 }
 
 func (mgr *genericManager) init() (err error) {
-	var newNSFd int
+	var newNSFile *os.File
 	defer func() {
 		if err != nil {
 			if errClean := mgr.CleanUp(); errClean != nil {
@@ -98,25 +104,25 @@ func (mgr *genericManager) init() (err error) {
 		}
 	}()
 	for i := 0; i < mgr.capacity; i++ {
-		if newNSFd, err = mgr.newNamespaceFunc(mgr.t); err != nil {
+		if newNSFile, err = mgr.newNamespaceFunc(mgr.t); err != nil {
 			return
 		} else {
-			mgr.unusedNS[mgr.id] = newNSFd
+			mgr.unusedNS[mgr.id] = newNSFile
 			mgr.id++
 		}
 	}
 	return
 }
 
-func genericCreateNewNamespace(t NamespaceType) (int, error) {
+func genericCreateNewNamespace(t NamespaceType) (*os.File, error) {
 	h, err := newNamespaceCreateHelper(t, "", "")
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	if err := h.do(); err != nil {
-		return -1, err
+		return nil, err
 	}
-	return h.getFd(), nil
+	return h.nsFile(), nil
 }
 
 func nsFlag(t NamespaceType) (int, error) {
