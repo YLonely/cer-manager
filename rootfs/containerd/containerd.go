@@ -9,6 +9,7 @@ import (
 	cd "github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/leases"
 	mnt "github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/platforms"
@@ -45,6 +46,12 @@ func (p *provider) Prepare(name, key string) ([]mount.Mount, error) {
 	}
 	defer client.Close()
 	ctx := namespaces.WithNamespace(context.Background(), "default")
+	leasesManager := client.LeasesService()
+	l, err := leasesManager.Create(ctx, leases.WithID(key))
+	if err != nil {
+		return nil, err
+	}
+	ctx = leases.WithLease(ctx, l.ID)
 	checkpoint, err := client.GetImage(ctx, name)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get image")
@@ -107,6 +114,9 @@ func (p *provider) Remove(key string) error {
 	defer client.Close()
 	ctx := namespaces.WithNamespace(context.Background(), "default")
 	sClient := client.SnapshotService(cd.DefaultSnapshotter)
+	if err := client.LeasesService().Delete(ctx, leases.Lease{ID: key}); err != nil && !errdefs.IsNotFound(err) {
+		return errors.Wrap(err, "error deleting lease")
+	}
 	if err = sClient.Remove(ctx, key); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}

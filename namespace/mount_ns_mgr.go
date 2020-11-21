@@ -319,6 +319,9 @@ func populateRootfs(args ...interface{}) error {
 	if err := m.Mount(rootfs); err != nil {
 		return errors.Wrapf(err, "mount rootfs %s with overlay failed", rootfs)
 	}
+	if err := unix.Chmod(rootfs, 0755); err != nil {
+		return errors.Wrap(err, "can not chmod")
+	}
 	//mount general fs
 	for _, m := range mounts {
 		if err := m.Mount.Mount(path.Join(rootfs, m.target)); err != nil {
@@ -386,7 +389,7 @@ func depopulateRootfs(args ...interface{}) error {
 
 func makeOverlaysReadOnly(ms []mount.Mount) {
 	n := len(ms)
-	last := ms[n-1]
+	last := &ms[n-1]
 	upper, lowers := last.Upper(), last.Lowers()
 	last.SetUpper("")
 	last.SetWork("")

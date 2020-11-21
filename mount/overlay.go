@@ -56,10 +56,11 @@ func (m *Mount) setOptions(prefix, value string) {
 			if value == "" {
 				before := m.Options[:i]
 				after := m.Options[i+1:]
-				m.Options = append(before, after...)
+				m.Options = append(append([]string{}, before...), after...)
 			} else {
 				m.Options[i] = prefix + value
 			}
+			break
 		}
 	}
 	if !exists {
