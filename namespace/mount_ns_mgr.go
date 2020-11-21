@@ -390,7 +390,7 @@ func makeOverlaysReadOnly(ms []mount.Mount) {
 	upper, lowers := last.Upper(), last.Lowers()
 	last.SetUpper("")
 	last.SetWork("")
-	last.SetLowers(append(lowers, upper))
+	last.SetLowers(append([]string{upper}, lowers...))
 }
 
 func isOverlayMounts(ms []mount.Mount) bool {
