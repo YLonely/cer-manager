@@ -16,6 +16,7 @@ var nsexecCommand = cli.Command{
 	Subcommands: []cli.Command{
 		createCommand,
 		releaseCommand,
+		resetCommand,
 	},
 }
 
@@ -73,6 +74,35 @@ var releaseCommand = cli.Command{
 			return nil
 		}
 		f := namespace.GetNamespaceFunction(namespace.NamespaceOpRelease, types.NamespaceType(t))
+		if f != nil {
+			err := f(context.String("bundle"))
+			if err != nil {
+				printError("Failed to invoke namespace function %s\n", err.Error())
+				return nil
+			}
+		}
+		fmt.Println("ret:OK")
+		return nil
+	},
+}
+
+var resetCommand = cli.Command{
+	Name:      "reset",
+	Usage:     "reset a already exists namespace for reuse",
+	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "bundle",
+			Usage: "spacifiy the path to the bundle if the ns type is mnt",
+		},
+	},
+	Action: func(context *cli.Context) error {
+		t := context.Args().First()
+		if t == "" {
+			printError("Namespace type must be provided\n")
+			return nil
+		}
+		f := namespace.GetNamespaceFunction(namespace.NamespaceOpReset, types.NamespaceType(t))
 		if f != nil {
 			err := f(context.String("bundle"))
 			if err != nil {

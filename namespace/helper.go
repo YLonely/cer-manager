@@ -70,6 +70,25 @@ func newNamespaceReleaseHelper(t types.NamespaceType, pid int, fd int, bundle st
 	}, nil
 }
 
+func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
+	cmd := exec.Command("/proc/self/exe", "nsexec", "reset")
+	if t == types.NamespaceMNT {
+		cmd.Args = append(cmd.Args, "--bundle", bundle)
+	}
+	cmd.Args = append(cmd.Args, string(t))
+	cmd.Env = append(
+		cmd.Env,
+		nsexecOpKey+"="+nsexecOpEnter,
+		nsexecNSTypeKey+"="+string(t),
+		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", pid, fd),
+	)
+	return &namespaceHelper{
+		cmd: cmd,
+		t:   t,
+		op:  NamespaceOpReset,
+	}, nil
+}
+
 func (helper *namespaceHelper) do() error {
 	stdin, err := helper.cmd.StdinPipe()
 	if err != nil {

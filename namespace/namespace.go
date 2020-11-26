@@ -36,6 +36,7 @@ type NamespaceOpType string
 const (
 	NamespaceOpCreate  NamespaceOpType = "create"
 	NamespaceOpRelease NamespaceOpType = "release"
+	NamespaceOpReset   NamespaceOpType = "reset"
 )
 
 const (

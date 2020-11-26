@@ -7,18 +7,22 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 
 	"github.com/YLonely/cer-manager/api/types"
+	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/mount"
 	"github.com/YLonely/cer-manager/rootfs"
+	"github.com/YLonely/cer-manager/services"
 	"golang.org/x/sys/unix"
 )
 
 func init() {
 	PutNamespaceFunction(NamespaceOpCreate, types.NamespaceMNT, populateBundle)
 	PutNamespaceFunction(NamespaceOpRelease, types.NamespaceMNT, depopulateBundle)
+	PutNamespaceFunction(NamespaceOpReset, types.NamespaceMNT, resetBundle)
 }
 
 func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider) (Manager, error) {
@@ -33,10 +37,11 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		return nil, errors.Wrap(err, "failed to create rootfs dir")
 	}
 	nsMgr := &mountManager{
-		root:       root,
-		mgrs:       map[string]*subManager{},
-		allBundles: map[int]string{},
-		provider:   provider,
+		root:        root,
+		mgrs:        map[string]*subManager{},
+		allBundles:  map[int]string{},
+		usedBundles: map[int]item{},
+		provider:    provider,
 	}
 	for _, name := range rootfsNames {
 		mounts, err = provider.Prepare(name, name+"-rootfsKey")
@@ -77,6 +82,14 @@ type mountManager struct {
 	allBundles map[int]string
 	provider   rootfs.Provider
 	root       string
+	// usedBundles maps id to it's bundle path and fd
+	usedBundles map[int]item
+	m           sync.Mutex
+}
+
+type item struct {
+	fd     int
+	bundle string
 }
 
 type subManager struct {
@@ -94,12 +107,34 @@ func (mgr *mountManager) Get(arg interface{}) (int, int, interface{}, error) {
 		}
 		retID := id*len(mgr.mgrs) + sub.offset
 		retBundle := mgr.allBundles[fd]
+		mgr.m.Lock()
+		defer mgr.m.Unlock()
+		mgr.usedBundles[id] = item{
+			fd:     fd,
+			bundle: retBundle,
+		}
 		return retID, fd, retBundle, nil
 	}
 	return -1, -1, nil, errors.Errorf("Can't get namespace for root %s\n", rootfsName)
 }
 
 func (mgr *mountManager) Put(id int) error {
+	i, exists := mgr.usedBundles[id]
+	if !exists {
+		return errors.New("invalid id")
+	}
+	h, err := newNamespaceResetHelper(types.NamespaceMNT, os.Getpid(), i.fd, i.bundle)
+	if err != nil {
+		log.Logger(services.NamespaceService, "Put").WithError(err).Error("failed to create helper")
+		return nil
+	}
+	if err = h.do(); err != nil {
+		log.Logger(services.NamespaceService, "Put").WithError(err).Error("error reset namespace")
+		return nil
+	}
+	mgr.m.Lock()
+	delete(mgr.usedBundles, id)
+	mgr.m.Unlock()
 	offset := id % len(mgr.mgrs)
 	for _, sub := range mgr.mgrs {
 		if sub.offset == offset {
@@ -110,7 +145,7 @@ func (mgr *mountManager) Put(id int) error {
 			return nil
 		}
 	}
-	return nil
+	return errors.New("invalid id")
 }
 
 func (mgr *mountManager) Update(interface{}) error {
@@ -394,6 +429,48 @@ func depopulateBundle(args ...interface{}) error {
 	// remove bundle
 	if err := os.RemoveAll(bundle); err != nil {
 		return errors.Wrap(err, "failed to remove bundle")
+	}
+	return nil
+}
+
+func resetBundle(args ...interface{}) error {
+	l := len(args)
+	if l < 1 {
+		return errors.New("no enough args")
+	}
+	bundle, ok := args[0].(string)
+	if !ok {
+		return errors.New("can't convert args[0] to string")
+	}
+	rootfs := path.Join(bundle, "rootfs")
+	upper := path.Join(bundle, "upper")
+	work := path.Join(bundle, "work")
+	// clean up work and upper
+	if err := removeContents(upper); err != nil {
+		return errors.Wrap(err, "failed to clean upper")
+	}
+	if err := removeContents(work); err != nil {
+		return errors.Wrap(err, "failed to clean work")
+	}
+	// unmount and remount rootfs
+	if err := depopulateRootfs(rootfs); err != nil {
+		return errors.Wrap(err, "failed to depopulate rootfs")
+	}
+	if err := populateRootfs(rootfs); err != nil {
+		return errors.Wrap(err, "failed to populate rootfs")
+	}
+	return nil
+}
+
+func removeContents(p string) error {
+	dirs, err := ioutil.ReadDir(p)
+	if err != nil {
+		return err
+	}
+	for _, d := range dirs {
+		if err := os.RemoveAll(path.Join(p, d.Name())); err != nil {
+			return err
+		}
 	}
 	return nil
 }
