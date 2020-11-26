@@ -17,8 +17,8 @@ import (
 )
 
 func init() {
-	PutNamespaceFunction(NamespaceOpCreate, types.NamespaceMNT, populateRootfs)
-	PutNamespaceFunction(NamespaceOpRelease, types.NamespaceMNT, depopulateRootfs)
+	PutNamespaceFunction(NamespaceOpCreate, types.NamespaceMNT, populateBundle)
+	PutNamespaceFunction(NamespaceOpRelease, types.NamespaceMNT, depopulateBundle)
 }
 
 func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider) (Manager, error) {
@@ -290,7 +290,37 @@ func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) f
 	}
 }
 
-func populateRootfs(args ...interface{}) error {
+func populateRootfs(rootfs string) error {
+	//mount general fs
+	for _, m := range mounts {
+		if err := m.Mount.Mount(path.Join(rootfs, m.target)); err != nil {
+			return errors.Wrapf(err, "mount(src:%s,dest:%s,type:%s) failed", m.Source, path.Join(rootfs, m.target), m.Type)
+		}
+	}
+	//make readonly paths
+	for _, p := range readonlyPaths {
+		joinedPath := path.Join(rootfs, p)
+		if err := unix.Mount(joinedPath, joinedPath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+			if !os.IsNotExist(err) {
+				return errors.Wrapf(err, "Make %s readonly failed", joinedPath)
+			}
+		}
+	}
+	//make masked paths
+	for _, p := range maskedPaths {
+		joinedPath := path.Join(rootfs, p)
+		if err := unix.Mount("/dev/null", joinedPath, "", unix.MS_BIND, ""); err != nil && !os.IsNotExist(err) {
+			if err == unix.ENOTDIR {
+				if err = unix.Mount("tmpfs", joinedPath, "tmpfs", unix.MS_RDONLY, ""); err != nil {
+					return errors.Wrapf(err, "Make %s masked failed", joinedPath)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func populateBundle(args ...interface{}) error {
 	l := len(args)
 	if l < 2 {
 		return errors.New("No enough arguments")
@@ -322,37 +352,29 @@ func populateRootfs(args ...interface{}) error {
 	if err := unix.Chmod(rootfs, 0755); err != nil {
 		return errors.Wrap(err, "can not chmod")
 	}
-	//mount general fs
-	for _, m := range mounts {
-		if err := m.Mount.Mount(path.Join(rootfs, m.target)); err != nil {
-			return errors.Wrapf(err, "mount(src:%s,dest:%s,type:%s) failed", m.Source, path.Join(rootfs, m.target), m.Type)
-		}
-	}
-	//make readonly paths
-	for _, p := range readonlyPaths {
-		joinedPath := path.Join(rootfs, p)
-		if err := unix.Mount(joinedPath, joinedPath, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
-			if !os.IsNotExist(err) {
-				return errors.Wrapf(err, "Make %s readonly failed", joinedPath)
-			}
-		}
-	}
-	//make masked paths
-	for _, p := range maskedPaths {
-		joinedPath := path.Join(rootfs, p)
-		if err := unix.Mount("/dev/null", joinedPath, "", unix.MS_BIND, ""); err != nil && !os.IsNotExist(err) {
-			if err == unix.ENOTDIR {
-				if err = unix.Mount("tmpfs", joinedPath, "tmpfs", unix.MS_RDONLY, ""); err != nil {
-					return errors.Wrapf(err, "Make %s masked failed", joinedPath)
-				}
-			}
-		}
-	}
-	return nil
+	return populateRootfs(rootfs)
 }
 
-func depopulateRootfs(args ...interface{}) error {
+func depopulateRootfs(rootfs string) error {
 	var failed []string
+	paths := append(maskedPaths, readonlyPaths...)
+	for i := len(mounts) - 1; i >= 0; i-- {
+		paths = append(paths, mounts[i].target)
+	}
+	// umount all the mount point in rootfs
+	for _, p := range paths {
+		joinedPath := path.Join(rootfs, p)
+		if err := unix.Unmount(joinedPath, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
+			failed = append(failed, "unmount "+joinedPath+" with error "+err.Error())
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(failed, ";"))
+}
+
+func depopulateBundle(args ...interface{}) error {
 	l := len(args)
 	if l < 1 {
 		return errors.New("No enough args")
@@ -362,27 +384,16 @@ func depopulateRootfs(args ...interface{}) error {
 		return errors.New("Can't convert args[0] to string")
 	}
 	rootfs := path.Join(bundle, "rootfs")
-	paths := append(maskedPaths, readonlyPaths...)
-	for i := len(mounts) - 1; i >= 0; i-- {
-		paths = append(paths, mounts[i].target)
-	}
-	// umount all the mount point in rootfs
-	for _, p := range paths {
-		joinedPath := path.Join(rootfs, p)
-		if err := unix.Unmount(joinedPath, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
-			failed = append(failed, err.Error()+":failed to unmount "+joinedPath)
-		}
+	if err := depopulateRootfs(rootfs); err != nil {
+		return err
 	}
 	// umount rootfs
 	if err := unix.Unmount(rootfs, unix.MNT_DETACH); err != nil {
-		failed = append(failed, err.Error()+":failed to unmount "+rootfs)
+		return errors.Wrap(err, "failed to unmount rootfs")
 	}
 	// remove bundle
 	if err := os.RemoveAll(bundle); err != nil {
-		failed = append(failed, err.Error()+":failed to remove "+bundle)
-	}
-	if len(failed) != 0 {
-		return errors.New(strings.Join(failed, ";"))
+		return errors.Wrap(err, "failed to remove bundle")
 	}
 	return nil
 }
