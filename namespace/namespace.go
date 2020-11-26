@@ -39,8 +39,8 @@ const (
 )
 
 const (
-	NamespaceErrorFormat  string = "error:%s"
-	NamespaceReturnFormat string = "ret:%s"
+	NamespaceErrorPrefix  string = "error:"
+	NamespaceReturnPrefix string = "ret:"
 )
 
 func OpenNSFile(t types.NamespaceType, pid int) (*os.File, error) {

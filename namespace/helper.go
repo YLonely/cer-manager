@@ -89,16 +89,13 @@ func (helper *namespaceHelper) do() error {
 	if err != nil {
 		return errors.Wrap(err, "Can't read ret value from cmd")
 	}
+	ret = strings.Trim(ret, "\n")
 	var msg string
-	if strings.HasPrefix(ret, "error") {
-		fmt.Sscanf(ret, NamespaceErrorFormat, &msg)
-		return errors.Errorf("Failed to execute cmd, error %s", msg)
+	if strings.HasPrefix(ret, NamespaceErrorPrefix) {
+		return errors.Errorf("execute cmd", strings.TrimPrefix(ret, NamespaceErrorPrefix))
 	}
 	if helper.op == NamespaceOpCreate {
-		_, err = fmt.Sscanf(ret, NamespaceReturnFormat, &msg)
-		if err != nil {
-			return errors.Wrapf(err, "Invalid return format %s", ret)
-		}
+		msg = strings.TrimPrefix(ret, NamespaceReturnPrefix)
 		pid, err := strconv.Atoi(msg)
 		if err != nil {
 			return errors.Errorf("Invalid return format %s", msg)
