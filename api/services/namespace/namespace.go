@@ -8,22 +8,22 @@ const (
 )
 
 type GetNamespaceRequest struct {
-	T   types.NamespaceType
-	Arg interface{}
+	T   types.NamespaceType `json:"namespace_type"`
+	Arg interface{}         `json:"arg,omitempty"`
 }
 
 type PutNamespaceRequest struct {
-	T  types.NamespaceType
-	ID int
+	T  types.NamespaceType `json:"namespace_type"`
+	ID int                 `json:"namespace_id"`
 }
 
 type PutNamespaceResponse struct {
-	Error string
+	Error string `json:"error,omitempty"`
 }
 
 type GetNamespaceResponse struct {
-	NSId int
-	Pid  int
-	Fd   int
-	Info interface{}
+	NSId int         `json:"namespace_id"`
+	Pid  int         `json:"pid"`
+	Fd   int         `json:"namespace_fd"`
+	Info interface{} `json:"info,omitempty"`
 }

@@ -2,6 +2,7 @@ package log
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/YLonely/cer-manager/services"
 	"github.com/sirupsen/logrus"
@@ -34,5 +35,6 @@ func Logger(t services.ServiceType, method string) *logrus.Entry {
 
 func WithInterface(entry *logrus.Entry, key string, value interface{}) *logrus.Entry {
 	valueJSON, _ := json.Marshal(value)
-	return entry.WithField(key, string(valueJSON))
+	str := strings.ReplaceAll(string(valueJSON), "\"", "")
+	return entry.WithField(key, str)
 }
