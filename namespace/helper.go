@@ -70,10 +70,10 @@ func newNamespaceReleaseHelper(t types.NamespaceType, pid int, fd int, bundle st
 	}, nil
 }
 
-func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
+func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, src, bundle string) (*namespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec", "reset")
 	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--bundle", bundle)
+		cmd.Args = append(cmd.Args, "--bundle", bundle, "--src", src)
 	}
 	cmd.Args = append(cmd.Args, string(t))
 	cmd.Env = append(

@@ -92,6 +92,10 @@ var resetCommand = cli.Command{
 	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
 	Flags: []cli.Flag{
 		cli.StringFlag{
+			Name:  "src",
+			Usage: "specifiy the source(lower) dir of the overlay mount in new mount namespace",
+		},
+		cli.StringFlag{
 			Name:  "bundle",
 			Usage: "spacifiy the path to the bundle if the ns type is mnt",
 		},
@@ -104,7 +108,7 @@ var resetCommand = cli.Command{
 		}
 		f := namespace.GetNamespaceFunction(namespace.NamespaceOpReset, types.NamespaceType(t))
 		if f != nil {
-			err := f(context.String("bundle"))
+			err := f(context.String("src"), context.String("bundle"))
 			if err != nil {
 				printError("Failed to invoke namespace function %s\n", err.Error())
 				return nil

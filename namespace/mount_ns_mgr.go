@@ -88,8 +88,9 @@ type mountManager struct {
 }
 
 type item struct {
-	fd     int
-	bundle string
+	fd         int
+	bundle     string
+	rootfsName string
 }
 
 type subManager struct {
@@ -110,8 +111,9 @@ func (mgr *mountManager) Get(arg interface{}) (int, int, interface{}, error) {
 		mgr.m.Lock()
 		defer mgr.m.Unlock()
 		mgr.usedBundles[id] = item{
-			fd:     fd,
-			bundle: retBundle,
+			fd:         fd,
+			bundle:     retBundle,
+			rootfsName: rootfsName,
 		}
 		return retID, fd, retBundle, nil
 	}
@@ -123,7 +125,13 @@ func (mgr *mountManager) Put(id int) error {
 	if !exists {
 		return errors.New("invalid id")
 	}
-	h, err := newNamespaceResetHelper(types.NamespaceMNT, os.Getpid(), i.fd, i.bundle)
+	h, err := newNamespaceResetHelper(
+		types.NamespaceMNT,
+		os.Getpid(),
+		i.fd,
+		path.Join(mgr.root, "rootfs", i.rootfsName),
+		i.bundle,
+	)
 	if err != nil {
 		log.Logger(services.NamespaceService, "Put").WithError(err).Error("failed to create helper")
 		return nil
@@ -372,6 +380,10 @@ func populateBundle(args ...interface{}) error {
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return err
 	}
+	return doPopulate(src, bundle)
+}
+
+func doPopulate(src, bundle string) error {
 	// mount the src dir to rootfs dir in bundle
 	rootfs := path.Join(bundle, "rootfs")
 	m := mount.Mount{
@@ -435,42 +447,44 @@ func depopulateBundle(args ...interface{}) error {
 
 func resetBundle(args ...interface{}) error {
 	l := len(args)
-	if l < 1 {
+	if l < 2 {
 		return errors.New("no enough args")
 	}
-	bundle, ok := args[0].(string)
+	src, ok := args[0].(string)
 	if !ok {
 		return errors.New("can't convert args[0] to string")
+	}
+	bundle, ok := args[1].(string)
+	if !ok {
+		return errors.New("can't convert args[1] to string")
 	}
 	rootfs := path.Join(bundle, "rootfs")
 	upper := path.Join(bundle, "upper")
 	work := path.Join(bundle, "work")
-	// clean up work and upper
-	if err := removeContents(upper); err != nil {
-		return errors.Wrap(err, "failed to clean upper")
-	}
-	if err := removeContents(work); err != nil {
-		return errors.Wrap(err, "failed to clean work")
-	}
-	// unmount and remount rootfs
+	// umount the mountpoints inside the rootfs
 	if err := depopulateRootfs(rootfs); err != nil {
 		return errors.Wrap(err, "failed to depopulate rootfs")
 	}
-	if err := populateRootfs(rootfs); err != nil {
-		return errors.Wrap(err, "failed to populate rootfs")
-	}
-	return nil
-}
-
-func removeContents(p string) error {
-	dirs, err := ioutil.ReadDir(p)
-	if err != nil {
+	// umount the rootfs
+	if err := unix.Unmount(rootfs, unix.MNT_DETACH); err != nil {
 		return err
 	}
-	for _, d := range dirs {
-		if err := os.RemoveAll(path.Join(p, d.Name())); err != nil {
-			return err
-		}
+	// remake the upper and work
+	if err := reMakeDir(upper); err != nil {
+		return err
+	}
+	if err := reMakeDir(work); err != nil {
+		return err
+	}
+	return doPopulate(src, bundle)
+}
+
+func reMakeDir(dir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dir, 0711); err != nil {
+		return err
 	}
 	return nil
 }
