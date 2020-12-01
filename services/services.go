@@ -16,6 +16,7 @@ const (
 const (
 	MainService ServiceType = iota + 10
 	NamespaceService
+	CheckpointService
 )
 
 type Service interface {
