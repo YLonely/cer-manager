@@ -4,8 +4,8 @@ import (
 	"os"
 	"syscall"
 
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/log"
-	"github.com/YLonely/cer-manager/services"
 )
 
 var HandledSignals = []os.Signal{
@@ -18,9 +18,9 @@ func HandleSignals(signals chan os.Signal, errorC chan error) chan struct{} {
 	go func() {
 		select {
 		case <-signals:
-			log.Logger(services.MainService, "").Info("Receive a signal")
+			log.Logger(cerm.MainService, "").Info("Receive a signal")
 		case err := <-errorC:
-			log.Logger(services.MainService, "").WithError(err).Error()
+			log.Logger(cerm.MainService, "").WithError(err).Error()
 		}
 		close(done)
 	}()

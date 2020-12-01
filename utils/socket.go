@@ -9,7 +9,7 @@ import (
 	"math"
 	"net"
 
-	"github.com/YLonely/cer-manager/services"
+	cerm "github.com/YLonely/cer-manager"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 	serviceType     methodLen      method      requestLen      request
    |___1byte__|_______4byte______|_________|_______4byte_____|__________|
 */
-func Pack(st services.ServiceType, method string, request interface{}) ([]byte, error) {
+func Pack(st cerm.ServiceType, method string, request interface{}) ([]byte, error) {
 	svrTypeBinary, err := WriteBinary(st)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func WriteBinary(v interface{}) ([]byte, error) {
 	return data.Bytes(), nil
 }
 
-func SendWithSizePrefix(conn net.Conn, v interface{}) error {
+func SendObject(conn net.Conn, v interface{}) error {
 	data, err := WithSizePrefix(v)
 	if err != nil {
 		return err
@@ -86,7 +86,7 @@ func Send(c net.Conn, data []byte) error {
 }
 
 //Receive data with size prefix
-func ReceiveData(c net.Conn, v interface{}) error {
+func ReceiveObject(c net.Conn, v interface{}) error {
 	var l uint32
 	dataPrefix := make([]byte, dataSizePrefixLen)
 	if _, err := io.ReadFull(c, dataPrefix); err != nil {
@@ -100,10 +100,10 @@ func ReceiveData(c net.Conn, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
-func ReceiveServiceType(c net.Conn) (services.ServiceType, error) {
-	data := make([]byte, services.ServiceTypePrefixLen)
+func ReceiveServiceType(c net.Conn) (cerm.ServiceType, error) {
+	data := make([]byte, cerm.ServiceTypePrefixLen)
 	if _, err := io.ReadFull(c, data); err != nil {
 		return 0, err
 	}
-	return services.ServiceType(binary.BigEndian.Uint16(data)), nil
+	return cerm.ServiceType(binary.BigEndian.Uint16(data)), nil
 }

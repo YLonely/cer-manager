@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/YLonely/cer-manager/services"
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/sirupsen/logrus"
 )
 
 type logItem struct {
-	stype  services.ServiceType
+	stype  cerm.ServiceType
 	method string
 }
 
 var loggers = map[logItem]*logrus.Entry{}
 
-func Logger(t services.ServiceType, method string) *logrus.Entry {
+func Logger(t cerm.ServiceType, method string) *logrus.Entry {
 	var ret *logrus.Entry
 	item := logItem{
 		stype:  t,

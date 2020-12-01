@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 
+	cerm "github.com/YLonely/cer-manager"
 	ns "github.com/YLonely/cer-manager/namespace"
 
 	nsapi "github.com/YLonely/cer-manager/api/services/namespace"
@@ -43,6 +44,7 @@ func New(root string) (services.Service, error) {
 		config:   config,
 		managers: map[types.NamespaceType]ns.Manager{},
 		root:     root,
+		router:   services.NewRouter(),
 	}, nil
 }
 
@@ -50,6 +52,7 @@ type namespaceService struct {
 	config   serviceConfig
 	managers map[types.NamespaceType]ns.Manager
 	root     string
+	router   services.Router
 }
 
 var _ services.Service = &namespaceService{}
@@ -74,23 +77,16 @@ func (svr *namespaceService) Init() error {
 	); err != nil {
 		return err
 	}
-	log.Logger(services.NamespaceService, "Init").Info("Service initialized")
+	svr.router.AddHandler(nsapi.MethodGetNamespace, services.Handler(svr.handleGetNamespace))
+	svr.router.AddHandler(nsapi.MethodPutNamespace, services.Handler(svr.handlePutNamespace))
+	log.Logger(cerm.NamespaceService, "Init").Info("Service initialized")
 	return nil
 }
 
 func (svr *namespaceService) Handle(ctx context.Context, conn net.Conn) {
-	var methodType string
-	err := utils.ReceiveData(conn, &methodType)
-	if err != nil {
-		log.Logger(services.NamespaceService, "").WithError(err).Error()
+	if err := svr.router.Handle(conn); err != nil {
+		log.Logger(cerm.NamespaceService, "").Error(err.Error())
 		conn.Close()
-		return
-	}
-	err = svr.handleRequest(methodType, conn)
-	if err != nil {
-		log.Logger(services.NamespaceService, "").WithError(err).Error()
-		conn.Close()
-		return
 	}
 }
 
@@ -98,7 +94,7 @@ func (svr *namespaceService) Stop() error {
 	for t, mgr := range svr.managers {
 		err := mgr.CleanUp()
 		if err != nil {
-			log.Logger(services.NamespaceService, "").WithField("namespace", t).Error(err)
+			log.Logger(cerm.NamespaceService, "").WithField("namespace", t).Error(err)
 		}
 	}
 	return nil
@@ -109,8 +105,12 @@ type serviceConfig struct {
 	ExtraArgs map[types.NamespaceType][]string `json:"extra_args"`
 }
 
-func (svr *namespaceService) handleGetNamespace(conn net.Conn, r nsapi.GetNamespaceRequest) error {
-	log.WithInterface(log.Logger(services.NamespaceService, "GetNamespace"), "request", r).Info()
+func (svr *namespaceService) handleGetNamespace(conn net.Conn) error {
+	var r nsapi.GetNamespaceRequest
+	if err := utils.ReceiveObject(conn, &r); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.NamespaceService, "GetNamespace"), "request", r).Info()
 	rsp := nsapi.GetNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Fd = -1
@@ -127,15 +127,19 @@ func (svr *namespaceService) handleGetNamespace(conn net.Conn, r nsapi.GetNamesp
 			rsp.Pid = os.Getpid()
 		}
 	}
-	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
+	if err := utils.SendObject(conn, rsp); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(services.NamespaceService, "GetNamespace"), "response", rsp).Info()
+	log.WithInterface(log.Logger(cerm.NamespaceService, "GetNamespace"), "response", rsp).Info()
 	return nil
 }
 
-func (svr *namespaceService) handlePutNamespace(conn net.Conn, r nsapi.PutNamespaceRequest) error {
-	log.WithInterface(log.Logger(services.NamespaceService, "PutNamespace"), "request", r).Info()
+func (svr *namespaceService) handlePutNamespace(conn net.Conn) error {
+	var r nsapi.PutNamespaceRequest
+	if err := utils.ReceiveObject(conn, &r); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.NamespaceService, "PutNamespace"), "request", r).Info()
 	rsp := nsapi.PutNamespaceResponse{}
 	if mgr, exists := svr.managers[r.T]; !exists {
 		rsp.Error = "No such namespace"
@@ -145,34 +149,11 @@ func (svr *namespaceService) handlePutNamespace(conn net.Conn, r nsapi.PutNamesp
 			rsp.Error = err.Error()
 		}
 	}
-	if err := utils.SendWithSizePrefix(conn, rsp); err != nil {
+	if err := utils.SendObject(conn, rsp); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(services.NamespaceService, "PutNamespace"), "response", rsp).Info()
+	log.WithInterface(log.Logger(cerm.NamespaceService, "PutNamespace"), "response", rsp).Info()
 	return nil
-}
-
-func (svr *namespaceService) handleRequest(method string, conn net.Conn) error {
-	switch method {
-	case nsapi.MethodGetNamespace:
-		{
-			var r nsapi.GetNamespaceRequest
-			if err := utils.ReceiveData(conn, &r); err != nil {
-				return err
-			}
-			return svr.handleGetNamespace(conn, r)
-		}
-	case nsapi.MethodPutNamespace:
-		{
-			var r nsapi.PutNamespaceRequest
-			if err := utils.ReceiveData(conn, &r); err != nil {
-				return err
-			}
-			return svr.handlePutNamespace(conn, r)
-		}
-	default:
-		return errors.New("Unknown method type")
-	}
 }
 
 func mergeConfig(to, from *serviceConfig) error {

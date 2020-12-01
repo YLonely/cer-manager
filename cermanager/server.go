@@ -8,6 +8,7 @@ import (
 	"path"
 	"sync"
 
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/services/namespace"
@@ -18,7 +19,7 @@ const DefaultRootPath = "/var/lib/cermanager"
 const DefaultSocketName = "daemon.socket"
 
 type Server struct {
-	services map[services.ServiceType]services.Service
+	services map[cerm.ServiceType]services.Service
 	listener net.Listener
 	group    sync.WaitGroup
 }
@@ -42,8 +43,8 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 	svr := &Server{
-		services: map[services.ServiceType]services.Service{
-			services.NamespaceService: namespaceSvr,
+		services: map[cerm.ServiceType]services.Service{
+			cerm.NamespaceService: namespaceSvr,
 		},
 		listener: listener,
 	}
@@ -82,14 +83,14 @@ func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
 		svrType, err := utils.ReceiveServiceType(conn)
 		if err != nil {
 			if err != io.EOF {
-				log.Logger(services.MainService, "").WithError(err).Error("Can't handle service type")
+				log.Logger(cerm.MainService, "").WithError(err).Error("Can't handle service type")
 			}
 			conn.Close()
 			return
 		}
 		if svr, exists := s.services[svrType]; !exists {
 			conn.Close()
-			log.Logger(services.MainService, "").WithField("serviceType", svrType).Error("No such service")
+			log.Logger(cerm.MainService, "").WithField("serviceType", svrType).Error("No such service")
 		} else {
 			svr.Handle(ctx, conn)
 		}
@@ -105,7 +106,7 @@ func (s *Server) Shutdown() {
 	s.group.Wait()
 	for t, ss := range s.services {
 		if err := ss.Stop(); err != nil {
-			log.Logger(services.MainService, "").WithField("serviceType", t).WithError(err).Error()
+			log.Logger(cerm.MainService, "").WithField("serviceType", t).WithError(err).Error()
 		}
 	}
 }

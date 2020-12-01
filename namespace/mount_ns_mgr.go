@@ -11,11 +11,11 @@ import (
 
 	"github.com/pkg/errors"
 
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/mount"
 	"github.com/YLonely/cer-manager/rootfs"
-	"github.com/YLonely/cer-manager/services"
 	"golang.org/x/sys/unix"
 )
 
@@ -133,11 +133,11 @@ func (mgr *mountManager) Put(id int) error {
 		i.bundle,
 	)
 	if err != nil {
-		log.Logger(services.NamespaceService, "Put").WithError(err).Error("failed to create helper")
+		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("failed to create helper")
 		return nil
 	}
 	if err = h.do(); err != nil {
-		log.Logger(services.NamespaceService, "Put").WithError(err).Error("error reset namespace")
+		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("error reset namespace")
 		return nil
 	}
 	mgr.m.Lock()

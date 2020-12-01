@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/api/services/namespace"
 	"github.com/YLonely/cer-manager/api/types"
-	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/utils"
 )
 
@@ -16,7 +16,7 @@ func (client *Client) GetNamespace(t types.NamespaceType, arg interface{}) (name
 		Arg: arg,
 	}
 	var data []byte
-	data, err = utils.Pack(services.NamespaceService, namespace.MethodGetNamespace, req)
+	data, err = utils.Pack(cerm.NamespaceService, namespace.MethodGetNamespace, req)
 	if err != nil {
 		return
 	}
@@ -24,7 +24,7 @@ func (client *Client) GetNamespace(t types.NamespaceType, arg interface{}) (name
 		return
 	}
 	rsp := namespace.GetNamespaceResponse{}
-	if err = utils.ReceiveData(client.c, &rsp); err != nil {
+	if err = utils.ReceiveObject(client.c, &rsp); err != nil {
 		return
 	}
 	if rsp.Fd == -1 {
@@ -41,7 +41,7 @@ func (client *Client) PutNamespace(t types.NamespaceType, nsID int) error {
 		T:  t,
 		ID: nsID,
 	}
-	data, err := utils.Pack(services.NamespaceService, namespace.MethodPutNamespace, req)
+	data, err := utils.Pack(cerm.NamespaceService, namespace.MethodPutNamespace, req)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (client *Client) PutNamespace(t types.NamespaceType, nsID int) error {
 		return err
 	}
 	rsp := namespace.PutNamespaceResponse{}
-	if err = utils.ReceiveData(client.c, &rsp); err != nil {
+	if err = utils.ReceiveObject(client.c, &rsp); err != nil {
 		return err
 	}
 	if rsp.Error != "" {

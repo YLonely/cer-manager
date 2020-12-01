@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
+	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/log"
-	"github.com/YLonely/cer-manager/services"
 	"github.com/urfave/cli"
 )
 
@@ -19,6 +19,6 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Logger(services.MainService, "").WithError(err).Error()
+		log.Logger(cerm.MainService, "").WithError(err).Error()
 	}
 }
