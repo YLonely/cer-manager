@@ -58,6 +58,7 @@ func (s *service) Init() error {
 		return err
 	}
 	// TODO: mount ccfs on s.root
+	s.router.AddHandler(api.MethodGetCheckpoint, s.handleGetCheckpoint)
 	log.Logger(cerm.CheckpointService, "Init").Info("Service initialized")
 	return nil
 }
@@ -77,5 +78,26 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	if err := utils.ReceiveObject(c, &r); err != nil {
 		return err
 	}
+	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "request", r).Info()
+	var resp api.GetCheckpointResponse
+	if r.Ref != "" {
+		checkpointDir := path.Join(s.root, r.Ref)
+		if _, err := os.Stat(checkpointDir); err == nil {
+			resp.Path = checkpointDir
+		} else if err == os.ErrNotExist {
+			// we just try to create a dir in ccfs, and ccfs will handle the rest of the work
+			if err := os.Mkdir(checkpointDir, 0755); err == nil {
+				resp.Path = checkpointDir
+			} else {
+				log.Logger(cerm.CheckpointService, "GetCheckpoint").WithError(err).Warnf("failed to create checkpoint dir %s", checkpointDir)
+			}
+		} else {
+			log.Logger(cerm.CheckpointService, "GetCheckpoint").WithError(err).Warn("failed to stat dir " + checkpointDir)
+		}
+	}
+	if err := utils.SendObject(c, resp); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "response", resp).Info()
 	return nil
 }

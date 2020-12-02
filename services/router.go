@@ -14,7 +14,9 @@ type Router struct {
 }
 
 func NewRouter() Router {
-	return Router{}
+	return Router{
+		hs: map[string]Handler{},
+	}
 }
 
 func (r Router) Handle(c net.Conn) error {

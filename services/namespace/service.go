@@ -77,8 +77,8 @@ func (svr *namespaceService) Init() error {
 	); err != nil {
 		return err
 	}
-	svr.router.AddHandler(nsapi.MethodGetNamespace, services.Handler(svr.handleGetNamespace))
-	svr.router.AddHandler(nsapi.MethodPutNamespace, services.Handler(svr.handlePutNamespace))
+	svr.router.AddHandler(nsapi.MethodGetNamespace, svr.handleGetNamespace)
+	svr.router.AddHandler(nsapi.MethodPutNamespace, svr.handlePutNamespace)
 	log.Logger(cerm.NamespaceService, "Init").Info("Service initialized")
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/services"
+	"github.com/YLonely/cer-manager/services/checkpoint"
 	"github.com/YLonely/cer-manager/services/namespace"
 	"github.com/YLonely/cer-manager/utils"
 )
@@ -42,9 +43,14 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	checkpointSvr, err := checkpoint.New(DefaultRootPath)
+	if err != nil {
+		return nil, err
+	}
 	svr := &Server{
 		services: map[cerm.ServiceType]services.Service{
-			cerm.NamespaceService: namespaceSvr,
+			cerm.NamespaceService:  namespaceSvr,
+			cerm.CheckpointService: checkpointSvr,
 		},
 		listener: listener,
 	}
