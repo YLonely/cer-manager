@@ -6,6 +6,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.15 // indirect
 	github.com/Microsoft/hcsshim v0.8.10 // indirect
 	github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f // indirect
+	github.com/YLonely/criuimages v0.0.0-20201126075103-3bc5829e3c32
 	github.com/containerd/cgroups v0.0.0-20201109155418-13abef5d31ec // indirect
 	github.com/containerd/containerd v1.4.1
 	github.com/containerd/continuity v0.0.0-20200928162600-f2cc35102c2a // indirect

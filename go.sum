@@ -15,6 +15,8 @@ github.com/Microsoft/hcsshim v0.8.10/go.mod h1:g5uw8EV2mAlzqe94tfNBNdr89fnbD/n3H
 github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f h1:UpWHrNP++ZiVuJbQbPUjjzBYG/+w028pDlzgoy/SM34=
 github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f/go.mod h1:30A5igQ91GEmhYJF8TaRP79pMBOYynRsyOByfVV0dU4=
 github.com/Shopify/logrus-bugsnag v0.0.0-20171204204709-577dee27f20d/go.mod h1:HI8ITrYtUY+O+ZhtlqUnD8+KwNPOyugEhfP9fdUIaEQ=
+github.com/YLonely/criuimages v0.0.0-20201126075103-3bc5829e3c32 h1:q6B10A+iGIPTsWfFPG68+Ad5gMStJh9FHb7fdLfe15s=
+github.com/YLonely/criuimages v0.0.0-20201126075103-3bc5829e3c32/go.mod h1:FZvXAg3hdEh/+IctvQ4/FfeSO0X71rFBEIp1PbD7Pc4=
 github.com/aws/aws-sdk-go v1.15.11/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
 github.com/beorn7/perks v0.0.0-20160804104726-4c0e84591b9a/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/bitly/go-simplejson v0.5.0/go.mod h1:cXHtHw4XUPsvGaxgjIAn8PhEWG9NfngEKAMDJEczWVA=

@@ -116,7 +116,7 @@ func (mgr *genericManager) init() (err error) {
 }
 
 func genericCreateNewNamespace(t types.NamespaceType) (*os.File, error) {
-	h, err := newNamespaceCreateHelper(t, "", "")
+	h, err := newNamespaceCreateHelper(t, "", "", "")
 	if err != nil {
 		return nil, err
 	}

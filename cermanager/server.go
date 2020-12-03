@@ -39,11 +39,11 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	namespaceSvr, err := namespace.New(DefaultRootPath)
+	checkpointSvr, err := checkpoint.New(DefaultRootPath)
 	if err != nil {
 		return nil, err
 	}
-	checkpointSvr, err := checkpoint.New(DefaultRootPath)
+	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(services.CheckpointSupplier))
 	if err != nil {
 		return nil, err
 	}

@@ -33,10 +33,10 @@ type arg struct {
 	value string
 }
 
-func newNamespaceCreateHelper(t types.NamespaceType, src, bundle string) (*namespaceHelper, error) {
+func newNamespaceCreateHelper(t types.NamespaceType, src, bundle, checkpoint string) (*namespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec", "create")
 	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--src", src, "--bundle", bundle)
+		cmd.Args = append(cmd.Args, "--src", src, "--bundle", bundle, "--checkpoint", checkpoint)
 	}
 	cmd.Args = append(cmd.Args, string(t))
 	cmd.Env = append(
@@ -70,10 +70,10 @@ func newNamespaceReleaseHelper(t types.NamespaceType, pid int, fd int, bundle st
 	}, nil
 }
 
-func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, src, bundle string) (*namespaceHelper, error) {
+func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, src, bundle, checkpoint string) (*namespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec", "reset")
 	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--bundle", bundle, "--src", src)
+		cmd.Args = append(cmd.Args, "--bundle", bundle, "--src", src, "--checkpoint", checkpoint)
 	}
 	cmd.Args = append(cmd.Args, string(t))
 	cmd.Env = append(

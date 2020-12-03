@@ -2,10 +2,14 @@ package namespace
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -16,6 +20,10 @@ import (
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/mount"
 	"github.com/YLonely/cer-manager/rootfs"
+	"github.com/YLonely/cer-manager/services"
+	"github.com/YLonely/criuimages"
+
+	criutype "github.com/YLonely/criuimages/types"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,7 +33,7 @@ func init() {
 	PutNamespaceFunction(NamespaceOpReset, types.NamespaceMNT, resetBundle)
 }
 
-func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider) (Manager, error) {
+func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider, supplier services.CheckpointSupplier) (Manager, error) {
 	if capacity < 0 || len(rootfsNames) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
@@ -42,6 +50,7 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		allBundles:  map[int]string{},
 		usedBundles: map[int]item{},
 		provider:    provider,
+		supplier:    supplier,
 	}
 	for _, name := range rootfsNames {
 		mounts, err = provider.Prepare(name, name+"-rootfsKey")
@@ -64,7 +73,11 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		nsMgr.mgrs[name] = &subManager{
 			offset: offset,
 		}
-		if mgr, err := newGenericManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir)); err != nil {
+		checkpoint, err := supplier.Get(name)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get checkpoint for "+name)
+		}
+		if mgr, err := newGenericManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir, checkpoint)); err != nil {
 			return nil, err
 		} else {
 			nsMgr.mgrs[name].mgr = mgr
@@ -85,6 +98,7 @@ type mountManager struct {
 	// usedBundles maps id to it's bundle path and fd
 	usedBundles map[int]item
 	m           sync.Mutex
+	supplier    services.CheckpointSupplier
 }
 
 type item struct {
@@ -125,12 +139,18 @@ func (mgr *mountManager) Put(id int) error {
 	if !exists {
 		return errors.New("invalid id")
 	}
+	checkpoint, err := mgr.supplier.Get(i.rootfsName)
+	if err != nil {
+		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("failed to get checkpoint for " + i.rootfsName)
+		return nil
+	}
 	h, err := newNamespaceResetHelper(
 		types.NamespaceMNT,
 		os.Getpid(),
 		i.fd,
 		path.Join(mgr.root, "rootfs", i.rootfsName),
 		i.bundle,
+		checkpoint,
 	)
 	if err != nil {
 		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("failed to create helper")
@@ -316,14 +336,14 @@ func createBundle() (string, error) {
 	return bundle, nil
 }
 
-func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) func(types.NamespaceType) (*os.File, error) {
+func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath, checkpointPath string) func(types.NamespaceType) (*os.File, error) {
 	return func(t types.NamespaceType) (*os.File, error) {
 		bundle, err := createBundle()
 		if err != nil {
 			return nil, errors.Wrap(err, "Can't create bundle for "+rootfsName)
 		}
 		//call the namespace helper to create the ns
-		helper, err := newNamespaceCreateHelper(t, rootfsPath, bundle)
+		helper, err := newNamespaceCreateHelper(t, rootfsPath, bundle, checkpointPath)
 		if err = helper.do(); err != nil {
 			return nil, errors.Wrap(err, "Can't create new mnt namespace")
 		}
@@ -333,7 +353,7 @@ func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath string) f
 	}
 }
 
-func populateRootfs(rootfs string) error {
+func populateRootfs(rootfs, checkpoint string) error {
 	//mount general fs
 	for _, m := range mounts {
 		if err := m.Mount.Mount(path.Join(rootfs, m.target)); err != nil {
@@ -348,6 +368,9 @@ func populateRootfs(rootfs string) error {
 				return errors.Wrapf(err, "Make %s readonly failed", joinedPath)
 			}
 		}
+		if err := unix.Mount(joinedPath, joinedPath, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY|unix.MS_REC, ""); err != nil {
+			return errors.Wrapf(err, "failed to make %s readonly", joinedPath)
+		}
 	}
 	//make masked paths
 	for _, p := range maskedPaths {
@@ -360,30 +383,147 @@ func populateRootfs(rootfs string) error {
 			}
 		}
 	}
+	//restore files in fs
+	if err := restoreFiles(rootfs, checkpoint); err != nil {
+		return errors.Wrap(err, "failed to restore files")
+	}
 	return nil
+}
+
+func restoreFiles(rootfs, checkpoint string) error {
+	const (
+		tarGzPrefix       = "tmpfs-dev-"
+		tarGzSuffix       = ".tar.gz.img"
+		mountpointsPrefix = "mountpoints-"
+	)
+	items, err := ioutil.ReadDir(checkpoint)
+	if err != nil {
+		return err
+	}
+	mountpointsFilePath := ""
+	for _, i := range items {
+		if !i.IsDir() && strings.HasPrefix(i.Name(), mountpointsPrefix) {
+			mountpointsFilePath = path.Join(checkpoint, i.Name())
+			break
+		}
+	}
+	if mountpointsFilePath == "" {
+		return errors.New("failed to find mountpoints-%d.img")
+	}
+	img, err := criuimages.New(mountpointsFilePath)
+	if err != nil {
+		return errors.Wrap(err, "failed to create mountpoint image")
+	}
+	entries, err := readAllCandidates(rootfs, img)
+	if err != nil {
+		return err
+	}
+	for _, i := range items {
+		if !i.IsDir() && strings.HasPrefix(i.Name(), tarGzPrefix) {
+			devIDStr := strings.TrimPrefix(strings.TrimSuffix(i.Name(), tarGzSuffix), tarGzPrefix)
+			devID, err := strconv.Atoi(devIDStr)
+			if err != nil {
+				return errors.Wrap(err, "can't convert devID string")
+			}
+			if err := doRestore(rootfs, entries, uint32(devID), path.Join(checkpoint, i.Name())); err != nil {
+				return errors.Wrapf(err, "failed to restore with dev id %d", devID)
+			}
+		}
+	}
+	return nil
+}
+
+func doRestore(rootfs string, entries map[uint32][]*criutype.MntEntry, devID uint32, restoreFilePath string) error {
+	var list []*criutype.MntEntry
+	var exists bool
+	if list, exists = entries[devID]; !exists {
+		return nil
+	}
+	if len(list) == 0 {
+		return errors.New("list empty")
+	}
+	sort.Slice(list, func(i, j int) bool {
+		mpA, mpB := list[i].GetMountpoint(), list[j].GetMountpoint()
+		dirsA, dirsB := strings.Split(mpA, "/"), strings.Split(mpB, "/")
+		return len(dirsA) < len(dirsB)
+	})
+	mountpoint := list[0].GetMountpoint()
+	target := path.Join(rootfs, mountpoint)
+	cmd := exec.Command("/bin/tar", "--extract", "--gzip", "--no-unquote", "--no-wildcards", "--directory="+target, "-f", restoreFilePath)
+	if err := cmd.Run(); err != nil {
+		return errors.Wrapf(err, "failed to untar file %s to %s", restoreFilePath, target)
+	}
+	return nil
+}
+
+func readAllCandidates(rootfs string, img *criuimages.Image) (map[uint32][]*criutype.MntEntry, error) {
+	entries := map[uint32][]*criutype.MntEntry{}
+	readonlys := map[string]struct{}{
+		"/sys": {},
+	}
+	for _, p := range readonlyPaths {
+		readonlys[p] = struct{}{}
+	}
+	for _, p := range maskedPaths {
+		readonlys[p] = struct{}{}
+	}
+	for {
+		entry := criutype.MntEntry{}
+		err := img.ReadOne(&entry)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read image")
+		}
+		if entry.GetExtKey() != "" {
+			continue
+		}
+		if _, exists := readonlys[path.Clean(entry.GetMountpoint())]; exists {
+			continue
+		}
+		mountpoint := path.Join(rootfs, entry.GetMountpoint())
+		stat, err := os.Stat(mountpoint)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get file info")
+		}
+		if !stat.IsDir() {
+			continue
+		}
+		devID := entry.GetRootDev()
+		if _, exists := entries[devID]; !exists {
+			entries[devID] = []*criutype.MntEntry{}
+		}
+		entries[devID] = append(entries[devID], &entry)
+	}
+	return entries, nil
 }
 
 func populateBundle(args ...interface{}) error {
 	l := len(args)
-	if l < 2 {
-		return errors.New("No enough arguments")
+	if l < 3 {
+		return errors.New("no enough arguments")
 	}
 	src, ok := args[0].(string)
 	if !ok {
-		return errors.New("Can't convert arg[0] to string")
+		return errors.New("can't convert args[0] to string")
 	}
 	bundle, ok := args[1].(string)
 	if !ok {
-		return errors.New("Can't convert arg[1] to string")
+		return errors.New("can't convert args[1] to string")
+	}
+	checkpoint, ok := args[2].(string)
+	if !ok {
+		return errors.New("can't convert args[2] to string")
 	}
 	//isolate the root
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return err
 	}
-	return doPopulate(src, bundle)
+	return doPopulate(src, bundle, checkpoint)
 }
 
-func doPopulate(src, bundle string) error {
+func doPopulate(src, bundle, checkpoint string) error {
 	// mount the src dir to rootfs dir in bundle
 	rootfs := path.Join(bundle, "rootfs")
 	m := mount.Mount{
@@ -399,7 +539,7 @@ func doPopulate(src, bundle string) error {
 	if err := unix.Chmod(rootfs, 0755); err != nil {
 		return errors.Wrap(err, "can not chmod")
 	}
-	return populateRootfs(rootfs)
+	return populateRootfs(rootfs, checkpoint)
 }
 
 func depopulateRootfs(rootfs string) error {
@@ -447,7 +587,7 @@ func depopulateBundle(args ...interface{}) error {
 
 func resetBundle(args ...interface{}) error {
 	l := len(args)
-	if l < 2 {
+	if l < 3 {
 		return errors.New("no enough args")
 	}
 	src, ok := args[0].(string)
@@ -457,6 +597,10 @@ func resetBundle(args ...interface{}) error {
 	bundle, ok := args[1].(string)
 	if !ok {
 		return errors.New("can't convert args[1] to string")
+	}
+	checkpoint, ok := args[2].(string)
+	if !ok {
+		return errors.New("can't convert args[2] to string")
 	}
 	rootfs := path.Join(bundle, "rootfs")
 	upper := path.Join(bundle, "upper")
@@ -476,7 +620,7 @@ func resetBundle(args ...interface{}) error {
 	if err := reMakeDir(work); err != nil {
 		return err
 	}
-	return doPopulate(src, bundle)
+	return doPopulate(src, bundle, checkpoint)
 }
 
 func reMakeDir(dir string) error {

@@ -3,10 +3,32 @@ package log
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	cerm "github.com/YLonely/cer-manager"
 	"github.com/sirupsen/logrus"
 )
+
+func init() {
+	l, _ := time.LoadLocation("Asia/Chongqing")
+	time.Local = l
+	logrus.SetFormatter(
+		formatter{
+			&logrus.TextFormatter{
+				FullTimestamp: true,
+			},
+		},
+	)
+}
+
+type formatter struct {
+	logrus.Formatter
+}
+
+func (f formatter) Format(e *logrus.Entry) ([]byte, error) {
+	e.Time = e.Time.Local()
+	return f.Formatter.Format(e)
+}
 
 type logItem struct {
 	stype  cerm.ServiceType

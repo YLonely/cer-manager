@@ -21,7 +21,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func New(root string) (services.Service, error) {
+func New(root string, supplier services.CheckpointSupplier) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
 	config := defaultConfig()
@@ -45,6 +45,7 @@ func New(root string) (services.Service, error) {
 		managers: map[types.NamespaceType]ns.Manager{},
 		root:     root,
 		router:   services.NewRouter(),
+		supplier: supplier,
 	}, nil
 }
 
@@ -53,6 +54,7 @@ type namespaceService struct {
 	managers map[types.NamespaceType]ns.Manager
 	root     string
 	router   services.Router
+	supplier services.CheckpointSupplier
 }
 
 var _ services.Service = &namespaceService{}
@@ -74,6 +76,7 @@ func (svr *namespaceService) Init() error {
 		svr.config.Capacity[types.NamespaceMNT],
 		svr.config.ExtraArgs[types.NamespaceMNT],
 		p,
+		svr.supplier,
 	); err != nil {
 		return err
 	}

@@ -33,6 +33,10 @@ var createCommand = cli.Command{
 			Name:  "bundle",
 			Usage: "specifiy the path to the bundle if the type is mnt",
 		},
+		cli.StringFlag{
+			Name:  "checkpoint",
+			Usage: "specifiy the path to the checkpoint files if the type is mnt",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		t := context.Args().First()
@@ -42,7 +46,7 @@ var createCommand = cli.Command{
 		}
 		f := namespace.GetNamespaceFunction(namespace.NamespaceOpCreate, types.NamespaceType(t))
 		if f != nil {
-			err := f(context.String("src"), context.String("bundle"))
+			err := f(context.String("src"), context.String("bundle"), context.String("checkpoint"))
 			if err != nil {
 				printError("Failed to invoke namespace function %s\n", err.Error())
 				return nil
@@ -97,7 +101,11 @@ var resetCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name:  "bundle",
-			Usage: "spacifiy the path to the bundle if the ns type is mnt",
+			Usage: "specifiy the path to the bundle if the ns type is mnt",
+		},
+		cli.StringFlag{
+			Name:  "checkpoint",
+			Usage: "specifiy the path to the checkpoint files if the ns type is mnt",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -108,7 +116,7 @@ var resetCommand = cli.Command{
 		}
 		f := namespace.GetNamespaceFunction(namespace.NamespaceOpReset, types.NamespaceType(t))
 		if f != nil {
-			err := f(context.String("src"), context.String("bundle"))
+			err := f(context.String("src"), context.String("bundle"), context.String("checkpoint"))
 			if err != nil {
 				printError("Failed to invoke namespace function %s\n", err.Error())
 				return nil
