@@ -81,9 +81,11 @@ func (p *provider) Prepare(ref string, target string) error {
 		return errors.Wrap(err, "failed to untar checkpoint files")
 	}
 	// create a .ready file in target dir which indecates the checkpoint files of ref is ready
-	if _, err := os.Create(stateFilePath); err != nil {
+	var f *os.File
+	if f, err = os.Create(stateFilePath); err != nil {
 		return errors.Wrap(err, "failed to create state file")
 	}
+	f.Close()
 	os.Chmod(stateFilePath, 0755)
 	return nil
 }
