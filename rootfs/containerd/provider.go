@@ -47,11 +47,11 @@ func (p *provider) Prepare(name, key string) ([]mount.Mount, error) {
 	defer client.Close()
 	ctx := namespaces.WithNamespace(context.Background(), "default")
 	leasesManager := client.LeasesService()
-	l, err := leasesManager.Create(ctx, leases.WithID(key))
-	if err != nil {
+	_, err = leasesManager.Create(ctx, leases.WithID(key))
+	if err != nil && !errdefs.IsAlreadyExists(err) {
 		return nil, err
 	}
-	ctx = leases.WithLease(ctx, l.ID)
+	ctx = leases.WithLease(ctx, key)
 	checkpoint, err := client.GetImage(ctx, name)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get image")
