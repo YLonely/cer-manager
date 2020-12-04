@@ -61,10 +61,17 @@ var _ services.Service = &namespaceService{}
 
 func (svr *namespaceService) Init() error {
 	var err error
-	if svr.managers[types.NamespaceUTS], err = ns.NewUTSManager(svr.root, svr.config.Capacity[types.NamespaceUTS]); err != nil {
+	if svr.managers[types.NamespaceUTS], err = ns.NewUTSManager(
+		svr.root,
+		svr.config.Capacity[types.NamespaceUTS],
+	); err != nil {
 		return err
 	}
-	if svr.managers[types.NamespaceIPC], err = ns.NewIPCManager(svr.root, svr.config.Capacity[types.NamespaceIPC]); err != nil {
+	if svr.managers[types.NamespaceIPC], err = ns.NewIPCManager(
+		svr.root,
+		svr.config.Capacity[types.NamespaceIPC],
+		svr.config.Refs,
+	); err != nil {
 		return err
 	}
 	p, err := containerd.NewProvider()
@@ -74,7 +81,7 @@ func (svr *namespaceService) Init() error {
 	if svr.managers[types.NamespaceMNT], err = ns.NewMountManager(
 		svr.root,
 		svr.config.Capacity[types.NamespaceMNT],
-		svr.config.ExtraArgs[types.NamespaceMNT],
+		svr.config.Refs,
 		p,
 		svr.supplier,
 	); err != nil {
@@ -104,8 +111,8 @@ func (svr *namespaceService) Stop() error {
 }
 
 type serviceConfig struct {
-	Capacity  map[types.NamespaceType]int      `json:"capacity"`
-	ExtraArgs map[types.NamespaceType][]string `json:"extra_args"`
+	Capacity map[types.NamespaceType]int `json:"capacity"`
+	Refs     []string                    `json:"image_refs"`
 }
 
 func (svr *namespaceService) handleGetNamespace(conn net.Conn) error {
@@ -167,10 +174,8 @@ func mergeConfig(to, from *serviceConfig) error {
 			}
 			to.Capacity[t] = v
 		}
-		if v, exists := from.ExtraArgs[t]; exists {
-			to.ExtraArgs[t] = v
-		}
 	}
+	to.Refs = append(to.Refs, from.Refs...)
 	return nil
 }
 
@@ -181,6 +186,6 @@ func defaultConfig() serviceConfig {
 			types.NamespaceUTS: 5,
 			types.NamespaceMNT: 5,
 		},
-		ExtraArgs: map[types.NamespaceType][]string{},
+		Refs: []string{},
 	}
 }

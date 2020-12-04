@@ -33,8 +33,8 @@ func init() {
 	PutNamespaceFunction(NamespaceOpReset, types.NamespaceMNT, resetBundle)
 }
 
-func NewMountManager(root string, capacity int, rootfsNames []string, provider rootfs.Provider, supplier services.CheckpointSupplier) (Manager, error) {
-	if capacity < 0 || len(rootfsNames) == 0 {
+func NewMountManager(root string, capacity int, imageRefs []string, provider rootfs.Provider, supplier services.CheckpointSupplier) (Manager, error) {
+	if capacity < 0 || len(imageRefs) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
 	offset := 0
@@ -52,7 +52,7 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		provider:    provider,
 		supplier:    supplier,
 	}
-	for _, name := range rootfsNames {
+	for _, name := range imageRefs {
 		mounts, err = provider.Prepare(name, name+"-rootfsKey")
 		if err != nil {
 			return nil, errors.Wrap(err, "error prepare rootfs for "+name)
