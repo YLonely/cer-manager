@@ -67,6 +67,8 @@ func NewMountManager(root string, capacity int, rootfsNames []string, provider r
 		if isOverlayMounts(mounts) {
 			makeOverlaysReadOnly(mounts)
 		}
+		// umount it first, avoid stacked mount
+		mount.UnmountAll(rootfsDir, 0)
 		if err = mount.MountAll(mounts, rootfsDir); err != nil {
 			return nil, errors.Wrap(err, "failed to mount")
 		}
