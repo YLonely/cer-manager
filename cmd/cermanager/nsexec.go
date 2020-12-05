@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/namespace"
@@ -11,19 +10,9 @@ import (
 )
 
 var nsexecCommand = cli.Command{
-	Name:  "nsexec",
-	Usage: "manage namespaces",
-	Subcommands: []cli.Command{
-		createCommand,
-		releaseCommand,
-		resetCommand,
-	},
-}
-
-var createCommand = cli.Command{
-	Name:      "create",
-	Usage:     "create and initial a namespace",
-	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
+	Name:      "nsexec",
+	Usage:     "execute functions in a namespace",
+	ArgsUsage: "FUNCTION_KEY NSTYPE {mnt|ipc|uts}",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "src",
@@ -39,90 +28,32 @@ var createCommand = cli.Command{
 		},
 	},
 	Action: func(context *cli.Context) error {
-		t := context.Args().First()
-		if t == "" {
-			printError("Namespace type must be provided\n")
+		key := context.Args().First()
+		nsType := context.Args().Get(1)
+		if nsType == "" {
+			printError("namespace type must be provided\n")
 			return nil
 		}
-		f := namespace.GetNamespaceFunction(namespace.NamespaceOpCreate, types.NamespaceType(t))
+		f := namespace.GetNamespaceFunction(namespace.NamespaceFunctionKey(key), types.NamespaceType(nsType))
 		if f != nil {
-			err := f(context.String("src"), context.String("bundle"), context.String("checkpoint"))
+			ret, err := f(
+				map[string]interface{}{
+					"src":        context.String("src"),
+					"bundle":     context.String("bundle"),
+					"checkpoint": context.String("checkpoint"),
+				},
+			)
 			if err != nil {
-				printError("Failed to invoke namespace function %s\n", err.Error())
+				printError("invoke function with error %s\n", err.Error())
 				return nil
 			}
+			fmt.Printf("ret:%s\n", ret)
+		} else {
+			fmt.Printf("ret:\n")
 		}
-		//we have to return our pid here
-		fmt.Printf("ret:%d\n", os.Getpid())
-		//and wait for parent process to open the namespace file
+		// wait for the parent to release me
 		var dummy string
 		fmt.Scanln(&dummy)
-		return nil
-	},
-}
-
-var releaseCommand = cli.Command{
-	Name:      "release",
-	Usage:     "release the resources inside a namespace",
-	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
-	Flags: []cli.Flag{
-		cli.StringFlag{
-			Name:  "bundle",
-			Usage: "spacifiy the path to the bundle if the ns type is mnt",
-		},
-	},
-	Action: func(context *cli.Context) error {
-		t := context.Args().First()
-		if t == "" {
-			printError("Namespace type must be provided\n")
-			return nil
-		}
-		f := namespace.GetNamespaceFunction(namespace.NamespaceOpRelease, types.NamespaceType(t))
-		if f != nil {
-			err := f(context.String("bundle"))
-			if err != nil {
-				printError("Failed to invoke namespace function %s\n", err.Error())
-				return nil
-			}
-		}
-		fmt.Println("ret:OK")
-		return nil
-	},
-}
-
-var resetCommand = cli.Command{
-	Name:      "reset",
-	Usage:     "reset a already exists namespace for reuse",
-	ArgsUsage: "NSTYPE {mnt|ipc|uts}",
-	Flags: []cli.Flag{
-		cli.StringFlag{
-			Name:  "src",
-			Usage: "specifiy the source(lower) dir of the overlay mount in new mount namespace",
-		},
-		cli.StringFlag{
-			Name:  "bundle",
-			Usage: "specifiy the path to the bundle if the ns type is mnt",
-		},
-		cli.StringFlag{
-			Name:  "checkpoint",
-			Usage: "specifiy the path to the checkpoint files if the ns type is mnt",
-		},
-	},
-	Action: func(context *cli.Context) error {
-		t := context.Args().First()
-		if t == "" {
-			printError("Namespace type must be provided\n")
-			return nil
-		}
-		f := namespace.GetNamespaceFunction(namespace.NamespaceOpReset, types.NamespaceType(t))
-		if f != nil {
-			err := f(context.String("src"), context.String("bundle"), context.String("checkpoint"))
-			if err != nil {
-				printError("Failed to invoke namespace function %s\n", err.Error())
-				return nil
-			}
-		}
-		fmt.Println("ret:OK")
 		return nil
 	},
 }

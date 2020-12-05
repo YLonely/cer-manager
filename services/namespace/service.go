@@ -71,6 +71,7 @@ func (svr *namespaceService) Init() error {
 		svr.root,
 		svr.config.Capacity[types.NamespaceIPC],
 		svr.config.Refs,
+		svr.supplier,
 	); err != nil {
 		return err
 	}

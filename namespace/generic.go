@@ -116,14 +116,22 @@ func (mgr *genericManager) init() (err error) {
 }
 
 func genericCreateNewNamespace(t types.NamespaceType) (*os.File, error) {
-	h, err := newNamespaceCreateHelper(t, "", "", "")
+	h, err := newNamespaceExecCreateHelper("", t, nil)
 	if err != nil {
 		return nil, err
 	}
 	if err := h.do(); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to create namespace of type %s", string(t))
 	}
-	return h.nsFile(), nil
+	nsFile, err := OpenNSFile(t, h.cmd.Process.Pid)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to open namespace file")
+	}
+	err = h.release()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to release child process")
+	}
+	return nsFile, nil
 }
 
 func nsFlag(t types.NamespaceType) (int, error) {

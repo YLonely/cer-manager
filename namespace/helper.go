@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"github.com/YLonely/cer-manager/api/types"
@@ -14,10 +13,9 @@ import (
 )
 
 type namespaceHelper struct {
-	newNSFile *os.File
-	cmd       *exec.Cmd
-	t         types.NamespaceType
-	op        NamespaceOpType
+	stdin io.WriteCloser
+	cmd   *exec.Cmd
+	ret   string
 }
 
 const (
@@ -28,111 +26,74 @@ const (
 	nsexecNSPathKey string = "__NS_PATH__"
 )
 
-type arg struct {
-	key   string
-	value string
-}
-
-func newNamespaceCreateHelper(t types.NamespaceType, src, bundle, checkpoint string) (*namespaceHelper, error) {
-	cmd := exec.Command("/proc/self/exe", "nsexec", "create")
-	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--src", src, "--bundle", bundle, "--checkpoint", checkpoint)
+func newNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.NamespaceType, args map[string]string) (*namespaceHelper, error) {
+	cmd := exec.Command("/proc/self/exe", "nsexec")
+	if args != nil {
+		for name, value := range args {
+			cmd.Args = append(cmd.Args, "--"+name, value)
+		}
 	}
-	cmd.Args = append(cmd.Args, string(t))
+	cmd.Args = append(cmd.Args, string(key), string(nsType))
 	cmd.Env = append(
 		cmd.Env,
 		nsexecOpKey+"="+nsexecOpCreate,
-		nsexecNSTypeKey+"="+string(t),
+		nsexecNSTypeKey+"="+string(nsType),
 	)
 	return &namespaceHelper{
 		cmd: cmd,
-		t:   t,
-		op:  NamespaceOpCreate,
 	}, nil
 }
 
-func newNamespaceReleaseHelper(t types.NamespaceType, pid int, fd int, bundle string) (*namespaceHelper, error) {
-	cmd := exec.Command("/proc/self/exe", "nsexec", "release")
-	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--bundle", bundle)
+func newNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.NamespaceType, fd int, args map[string]string) (*namespaceHelper, error) {
+	if fd <= 0 {
+		return nil, errors.New("invalid fd value")
 	}
-	cmd.Args = append(cmd.Args, string(t))
+	cmd := exec.Command("/proc/self/exe", "nsexec")
+	if args != nil {
+		for name, value := range args {
+			cmd.Args = append(cmd.Args, "--"+name, value)
+		}
+	}
+	cmd.Args = append(cmd.Args, string(key), string(nsType))
 	cmd.Env = append(
 		cmd.Env,
 		nsexecOpKey+"="+nsexecOpEnter,
-		nsexecNSTypeKey+"="+string(t),
-		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", pid, fd),
+		nsexecNSTypeKey+"="+string(nsType),
+		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), fd),
 	)
 	return &namespaceHelper{
 		cmd: cmd,
-		t:   t,
-		op:  NamespaceOpRelease,
-	}, nil
-}
-
-func newNamespaceResetHelper(t types.NamespaceType, pid int, fd int, src, bundle, checkpoint string) (*namespaceHelper, error) {
-	cmd := exec.Command("/proc/self/exe", "nsexec", "reset")
-	if t == types.NamespaceMNT {
-		cmd.Args = append(cmd.Args, "--bundle", bundle, "--src", src, "--checkpoint", checkpoint)
-	}
-	cmd.Args = append(cmd.Args, string(t))
-	cmd.Env = append(
-		cmd.Env,
-		nsexecOpKey+"="+nsexecOpEnter,
-		nsexecNSTypeKey+"="+string(t),
-		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", pid, fd),
-	)
-	return &namespaceHelper{
-		cmd: cmd,
-		t:   t,
-		op:  NamespaceOpReset,
 	}, nil
 }
 
 func (helper *namespaceHelper) do() error {
 	stdin, err := helper.cmd.StdinPipe()
 	if err != nil {
-		return errors.Wrap(err, "Can't get stdin from cmd")
+		return errors.Wrap(err, "can't get stdin from cmd")
 	}
+	helper.stdin = stdin
 	stdout, err := helper.cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "Can't get stdout from cmd")
+		return errors.Wrap(err, "can't get stdout from cmd")
 	}
 	reader := bufio.NewReader(stdout)
 	err = helper.cmd.Start()
 	if err != nil {
-		return errors.Wrap(err, "Can't start cmd")
+		return errors.Wrap(err, "can't start cmd")
 	}
-	defer helper.cmd.Wait()
 	ret, err := reader.ReadString('\n')
 	if err != nil {
-		return errors.Wrap(err, "Can't read ret value from cmd")
+		return errors.Wrap(err, "can't read ret value from cmd")
 	}
 	ret = strings.Trim(ret, "\n")
-	var msg string
 	if strings.HasPrefix(ret, NamespaceErrorPrefix) {
 		return errors.Errorf("execute cmd", strings.TrimPrefix(ret, NamespaceErrorPrefix))
 	}
-	if helper.op == NamespaceOpCreate {
-		msg = strings.TrimPrefix(ret, NamespaceReturnPrefix)
-		pid, err := strconv.Atoi(msg)
-		if err != nil {
-			return errors.Errorf("Invalid return format %s", msg)
-		}
-		if pid != helper.cmd.Process.Pid {
-			return errors.Errorf("Pid didn't match %d %d", pid, helper.cmd.Process.Pid)
-		}
-		f, err := OpenNSFile(helper.t, pid)
-		if err != nil {
-			return errors.Wrap(err, "Can't open ns file")
-		}
-		helper.newNSFile = f
-		// tell child process that it can exits
-		io.WriteString(stdin, "OK\n")
-	}
+	helper.ret = strings.TrimPrefix(ret, NamespaceReturnPrefix)
 	return nil
 }
 
-func (helper *namespaceHelper) nsFile() *os.File {
-	return helper.newNSFile
+func (helper *namespaceHelper) release() error {
+	io.WriteString(helper.stdin, "OK\n")
+	return helper.cmd.Wait()
 }

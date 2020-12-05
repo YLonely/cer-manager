@@ -8,12 +8,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-type NamespaceFunction func(args ...interface{}) error
+type NamespaceFunction func(map[string]interface{}) (string, error)
 
-var namespaceFunctions = map[NamespaceOpType]map[types.NamespaceType]NamespaceFunction{}
+var namespaceFunctions = map[NamespaceFunctionKey]map[types.NamespaceType]NamespaceFunction{}
 
-func GetNamespaceFunction(op NamespaceOpType, t types.NamespaceType) NamespaceFunction {
-	if functionsOfType, exists := namespaceFunctions[op]; exists {
+func GetNamespaceFunction(key NamespaceFunctionKey, t types.NamespaceType) NamespaceFunction {
+	if functionsOfType, exists := namespaceFunctions[key]; exists {
 		if f, valid := functionsOfType[t]; valid {
 			return f
 		}
@@ -21,22 +21,22 @@ func GetNamespaceFunction(op NamespaceOpType, t types.NamespaceType) NamespaceFu
 	return nil
 }
 
-func PutNamespaceFunction(op NamespaceOpType, t types.NamespaceType, f NamespaceFunction) {
+func PutNamespaceFunction(key NamespaceFunctionKey, t types.NamespaceType, f NamespaceFunction) {
 	var functionsOfType map[types.NamespaceType]NamespaceFunction
 	var exists bool
-	if functionsOfType, exists = namespaceFunctions[op]; !exists {
-		namespaceFunctions[op] = map[types.NamespaceType]NamespaceFunction{}
-		functionsOfType = namespaceFunctions[op]
+	if functionsOfType, exists = namespaceFunctions[key]; !exists {
+		namespaceFunctions[key] = map[types.NamespaceType]NamespaceFunction{}
+		functionsOfType = namespaceFunctions[key]
 	}
 	functionsOfType[t] = f
 }
 
-type NamespaceOpType string
+type NamespaceFunctionKey string
 
 const (
-	NamespaceOpCreate  NamespaceOpType = "create"
-	NamespaceOpRelease NamespaceOpType = "release"
-	NamespaceOpReset   NamespaceOpType = "reset"
+	namespaceFunctionKeyCreate  NamespaceFunctionKey = "create"
+	namespaceFunctionKeyRelease NamespaceFunctionKey = "release"
+	namespaceFunctionKeyReset   NamespaceFunctionKey = "reset"
 )
 
 const (
