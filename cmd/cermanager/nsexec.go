@@ -30,13 +30,15 @@ var nsexecCommand = cli.Command{
 	Action: func(context *cli.Context) error {
 		key := context.Args().First()
 		nsType := context.Args().Get(1)
+		var ret []byte
+		var err error
 		if nsType == "" {
-			printError("namespace type must be provided\n")
+			printError("namespace type must be provided")
 			return nil
 		}
 		f := namespace.GetNamespaceFunction(namespace.NamespaceFunctionKey(key), types.NamespaceType(nsType))
 		if f != nil {
-			ret, err := f(
+			ret, err = f(
 				map[string]interface{}{
 					"src":        context.String("src"),
 					"bundle":     context.String("bundle"),
@@ -44,13 +46,11 @@ var nsexecCommand = cli.Command{
 				},
 			)
 			if err != nil {
-				printError("invoke function with error %s\n", err.Error())
+				printError("invoke function with error %s", err.Error())
 				return nil
 			}
-			fmt.Printf("ret:%s\n", ret)
-		} else {
-			fmt.Printf("ret:\n")
 		}
+		fmt.Printf("ret:%s", ret)
 		// wait for the parent to release me
 		var dummy string
 		fmt.Scanln(&dummy)
@@ -59,5 +59,5 @@ var nsexecCommand = cli.Command{
 }
 
 func printError(format string, a ...interface{}) {
-	fmt.Printf("error:"+format, a...)
+	fmt.Printf("err:"+format, a...)
 }

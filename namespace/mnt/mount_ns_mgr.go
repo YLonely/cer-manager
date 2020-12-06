@@ -1,4 +1,4 @@
-package namespace
+package mnt
 
 import (
 	"fmt"
@@ -19,6 +19,8 @@ import (
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/mount"
+	"github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/namespace/generic"
 	"github.com/YLonely/cer-manager/rootfs"
 	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/criuimages"
@@ -28,12 +30,12 @@ import (
 )
 
 func init() {
-	PutNamespaceFunction(namespaceFunctionKeyCreate, types.NamespaceMNT, populateBundle)
-	PutNamespaceFunction(namespaceFunctionKeyRelease, types.NamespaceMNT, depopulateBundle)
-	PutNamespaceFunction(namespaceFunctionKeyReset, types.NamespaceMNT, resetBundle)
+	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyCreate, types.NamespaceMNT, populateBundle)
+	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyRelease, types.NamespaceMNT, depopulateBundle)
+	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyReset, types.NamespaceMNT, resetBundle)
 }
 
-func NewMountManager(root string, capacity int, imageRefs []string, provider rootfs.Provider, supplier services.CheckpointSupplier) (Manager, error) {
+func NewManager(root string, capacity int, imageRefs []string, provider rootfs.Provider, supplier services.CheckpointSupplier) (namespace.Manager, error) {
 	if capacity < 0 || len(imageRefs) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
@@ -79,7 +81,7 @@ func NewMountManager(root string, capacity int, imageRefs []string, provider roo
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get checkpoint for "+name)
 		}
-		if mgr, err := newGenericManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir, checkpoint)); err != nil {
+		if mgr, err := generic.NewManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(name, rootfsDir, checkpoint)); err != nil {
 			return nil, err
 		} else {
 			nsMgr.mgrs[name].mgr = mgr
@@ -89,7 +91,7 @@ func NewMountManager(root string, capacity int, imageRefs []string, provider roo
 	return nsMgr, nil
 }
 
-var _ Manager = &mountManager{}
+var _ namespace.Manager = &mountManager{}
 
 type mountManager struct {
 	mgrs map[string]*subManager
@@ -110,7 +112,7 @@ type item struct {
 }
 
 type subManager struct {
-	mgr    *genericManager
+	mgr    *generic.GenericManager
 	offset int
 }
 
@@ -146,8 +148,8 @@ func (mgr *mountManager) Put(id int) error {
 		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("failed to get checkpoint for " + i.rootfsName)
 		return nil
 	}
-	h, err := newNamespaceExecEnterHelper(
-		namespaceFunctionKeyReset,
+	h, err := namespace.NewNamespaceExecEnterHelper(
+		namespace.NamespaceFunctionKeyReset,
 		types.NamespaceMNT,
 		i.fd,
 		map[string]string{
@@ -160,7 +162,7 @@ func (mgr *mountManager) Put(id int) error {
 		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("failed to create helper")
 		return nil
 	}
-	if err = h.do(); err != nil {
+	if err = h.Do(true); err != nil {
 		log.Logger(cerm.NamespaceService, "Put").WithError(err).Error("error reset namespace")
 		return nil
 	}
@@ -187,7 +189,10 @@ func (mgr *mountManager) Update(interface{}) error {
 func (mgr *mountManager) CleanUp() error {
 	var failed []string
 	for fd, bundle := range mgr.allBundles {
-		helper, err := newNamespaceExecEnterHelper(namespaceFunctionKeyRelease, types.NamespaceMNT, fd,
+		helper, err := namespace.NewNamespaceExecEnterHelper(
+			namespace.NamespaceFunctionKeyRelease,
+			types.NamespaceMNT,
+			fd,
 			map[string]string{
 				"bundle": bundle,
 			},
@@ -196,11 +201,8 @@ func (mgr *mountManager) CleanUp() error {
 			failed = append(failed, fmt.Sprintf("create ns helper for fd %d and bundle %s, error %s", fd, bundle, err.Error()))
 			continue
 		}
-		if err = helper.do(); err != nil {
+		if err = helper.Do(true); err != nil {
 			failed = append(failed, fmt.Sprintf("execute helper for fd %d and bundle %s, error %s", fd, bundle, err.Error()))
-		}
-		if err = helper.release(); err != nil {
-			failed = append(failed, err.Error())
 		}
 	}
 	rootfsParentDir := path.Join(mgr.root, "rootfs")
@@ -354,21 +356,23 @@ func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath, checkpoi
 			return nil, errors.Wrap(err, "Can't create bundle for "+rootfsName)
 		}
 		//call the namespace helper to create the ns
-		helper, err := newNamespaceExecCreateHelper(namespaceFunctionKeyCreate, t,
+		helper, err := namespace.NewNamespaceExecCreateHelper(
+			namespace.NamespaceFunctionKeyCreate,
+			t,
 			map[string]string{
 				"src":        rootfsPath,
 				"bundle":     bundle,
 				"checkpoint": checkpointPath,
 			},
 		)
-		if err = helper.do(); err != nil {
+		if err = helper.Do(false); err != nil {
 			return nil, errors.Wrap(err, "failed to create new mnt namespace")
 		}
-		newNSFile, err := OpenNSFile(t, helper.cmd.Process.Pid)
+		newNSFile, err := namespace.OpenNSFile(t, helper.Cmd.Process.Pid)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to open namespace file")
 		}
-		if err := helper.release(); err != nil {
+		if err := helper.Release(); err != nil {
 			return nil, errors.Wrap(err, "failed to release child process")
 		}
 		mgr.allBundles[int(newNSFile.Fd())] = bundle
@@ -522,24 +526,24 @@ func readAllCandidates(rootfs string, img *criuimages.Image) (map[uint32][]*criu
 	return entries, nil
 }
 
-func populateBundle(args map[string]interface{}) (string, error) {
+func populateBundle(args map[string]interface{}) ([]byte, error) {
 	src, ok := args["src"].(string)
 	if !ok || src == "" {
-		return "", errors.New("src must be provided")
+		return nil, errors.New("src must be provided")
 	}
 	bundle, ok := args["bundle"].(string)
 	if !ok || bundle == "" {
-		return "", errors.New("bundle must be provided")
+		return nil, errors.New("bundle must be provided")
 	}
 	checkpoint, ok := args["checkpoint"].(string)
 	if !ok || checkpoint == "" {
-		return "", errors.New("checkpoint must be provided")
+		return nil, errors.New("checkpoint must be provided")
 	}
 	//isolate the root
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
-		return "", err
+		return nil, err
 	}
-	return "", doPopulate(src, bundle, checkpoint)
+	return nil, doPopulate(src, bundle, checkpoint)
 }
 
 func doPopulate(src, bundle, checkpoint string) error {
@@ -580,58 +584,58 @@ func depopulateRootfs(rootfs string) error {
 	return errors.New(strings.Join(failed, ";"))
 }
 
-func depopulateBundle(args map[string]interface{}) (string, error) {
+func depopulateBundle(args map[string]interface{}) ([]byte, error) {
 	bundle, ok := args["bundle"].(string)
 	if !ok || bundle == "" {
-		return "", errors.New("bundle must be provided")
+		return nil, errors.New("bundle must be provided")
 	}
 	rootfs := path.Join(bundle, "rootfs")
 	if err := depopulateRootfs(rootfs); err != nil {
-		return "", err
+		return nil, err
 	}
 	// umount rootfs
 	if err := unix.Unmount(rootfs, unix.MNT_DETACH); err != nil {
-		return "", errors.Wrap(err, "failed to unmount rootfs")
+		return nil, errors.Wrap(err, "failed to unmount rootfs")
 	}
 	// remove bundle
 	if err := os.RemoveAll(bundle); err != nil {
-		return "", errors.Wrap(err, "failed to remove bundle")
+		return nil, errors.Wrap(err, "failed to remove bundle")
 	}
-	return "", nil
+	return nil, nil
 }
 
-func resetBundle(args map[string]interface{}) (string, error) {
+func resetBundle(args map[string]interface{}) ([]byte, error) {
 	src, ok := args["src"].(string)
 	if !ok || src == "" {
-		return "", errors.New("src must be provided")
+		return nil, errors.New("src must be provided")
 	}
 	bundle, ok := args["bundle"].(string)
 	if !ok {
-		return "", errors.New("bundle must be provided")
+		return nil, errors.New("bundle must be provided")
 	}
 	checkpoint, ok := args["checkpoint"].(string)
 	if !ok {
-		return "", errors.New("checkpoint must be provided")
+		return nil, errors.New("checkpoint must be provided")
 	}
 	rootfs := path.Join(bundle, "rootfs")
 	upper := path.Join(bundle, "upper")
 	work := path.Join(bundle, "work")
 	// umount the mountpoints inside the rootfs
 	if err := depopulateRootfs(rootfs); err != nil {
-		return "", errors.Wrap(err, "failed to depopulate rootfs")
+		return nil, errors.Wrap(err, "failed to depopulate rootfs")
 	}
 	// umount the rootfs
 	if err := unix.Unmount(rootfs, unix.MNT_DETACH); err != nil {
-		return "", err
+		return nil, err
 	}
 	// remake the upper and work
 	if err := reMakeDir(upper); err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := reMakeDir(work); err != nil {
-		return "", err
+		return nil, err
 	}
-	return "", doPopulate(src, bundle, checkpoint)
+	return nil, doPopulate(src, bundle, checkpoint)
 }
 
 func reMakeDir(dir string) error {

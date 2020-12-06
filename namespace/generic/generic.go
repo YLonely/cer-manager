@@ -1,4 +1,4 @@
-package namespace
+package generic
 
 import (
 	"fmt"
@@ -7,15 +7,16 @@ import (
 	"sync"
 
 	"github.com/YLonely/cer-manager/api/types"
+	"github.com/YLonely/cer-manager/namespace"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
-func newGenericManager(capacity int, t types.NamespaceType, newNamespaceFunc func(types.NamespaceType) (f *os.File, err error)) (*genericManager, error) {
+func NewManager(capacity int, t types.NamespaceType, newNamespaceFunc func(types.NamespaceType) (f *os.File, err error)) (*GenericManager, error) {
 	if capacity < 0 {
 		return nil, errors.New("invalid capacity")
 	}
-	manager := &genericManager{
+	manager := &GenericManager{
 		capacity:         capacity,
 		usedNS:           map[int]*os.File{},
 		unusedNS:         map[int]*os.File{},
@@ -23,13 +24,16 @@ func newGenericManager(capacity int, t types.NamespaceType, newNamespaceFunc fun
 		id:               0,
 		newNamespaceFunc: newNamespaceFunc,
 	}
+	if manager.newNamespaceFunc == nil {
+		manager.newNamespaceFunc = genericCreateNewNamespace
+	}
 	if err := manager.init(); err != nil {
 		return nil, err
 	}
 	return manager, nil
 }
 
-type genericManager struct {
+type GenericManager struct {
 	capacity int
 	// usedNS maps id to already used namespaces
 	usedNS map[int]*os.File
@@ -41,9 +45,9 @@ type genericManager struct {
 	newNamespaceFunc func(types.NamespaceType) (*os.File, error)
 }
 
-var _ Manager = &genericManager{}
+var _ namespace.Manager = &GenericManager{}
 
-func (mgr *genericManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
+func (mgr *GenericManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
 	var f *os.File
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
@@ -59,7 +63,7 @@ func (mgr *genericManager) Get(interface{}) (id int, newNSFd int, info interface
 	return
 }
 
-func (mgr *genericManager) Put(id int) error {
+func (mgr *GenericManager) Put(id int) error {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	if f, exists := mgr.usedNS[id]; !exists {
@@ -71,11 +75,11 @@ func (mgr *genericManager) Put(id int) error {
 	return nil
 }
 
-func (mgr *genericManager) Update(config interface{}) error {
+func (mgr *GenericManager) Update(config interface{}) error {
 	return nil
 }
 
-func (mgr *genericManager) CleanUp() error {
+func (mgr *GenericManager) CleanUp() error {
 	var failed []string
 	files := make([]*os.File, 0, mgr.capacity)
 	for _, f := range mgr.usedNS {
@@ -95,7 +99,7 @@ func (mgr *genericManager) CleanUp() error {
 	return nil
 }
 
-func (mgr *genericManager) init() (err error) {
+func (mgr *GenericManager) init() (err error) {
 	var newNSFile *os.File
 	defer func() {
 		if err != nil {
@@ -116,18 +120,18 @@ func (mgr *genericManager) init() (err error) {
 }
 
 func genericCreateNewNamespace(t types.NamespaceType) (*os.File, error) {
-	h, err := newNamespaceExecCreateHelper("", t, nil)
+	h, err := namespace.NewNamespaceExecCreateHelper("", t, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.do(); err != nil {
+	if err := h.Do(false); err != nil {
 		return nil, errors.Wrapf(err, "failed to create namespace of type %s", string(t))
 	}
-	nsFile, err := OpenNSFile(t, h.cmd.Process.Pid)
+	nsFile, err := namespace.OpenNSFile(t, h.Cmd.Process.Pid)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open namespace file")
 	}
-	err = h.release()
+	err = h.Release()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to release child process")
 	}

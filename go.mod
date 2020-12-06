@@ -6,7 +6,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.15 // indirect
 	github.com/Microsoft/hcsshim v0.8.10 // indirect
 	github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f // indirect
-	github.com/YLonely/criuimages v0.0.0-20201126075103-3bc5829e3c32
+	github.com/YLonely/criuimages v0.0.0-20201206130433-8274c008f96b
 	github.com/containerd/cgroups v0.0.0-20201109155418-13abef5d31ec // indirect
 	github.com/containerd/containerd v1.4.1
 	github.com/containerd/continuity v0.0.0-20200928162600-f2cc35102c2a // indirect
@@ -29,5 +29,6 @@ require (
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
 	golang.org/x/sys v0.0.0-20201113233024-12cec1faf1ba
 	google.golang.org/grpc v1.33.2 // indirect
+	google.golang.org/protobuf v1.25.0
 	gotest.tools/v3 v3.0.3 // indirect
 )

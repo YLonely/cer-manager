@@ -10,6 +10,9 @@ import (
 
 	cerm "github.com/YLonely/cer-manager"
 	ns "github.com/YLonely/cer-manager/namespace"
+	"github.com/YLonely/cer-manager/namespace/ipc"
+	"github.com/YLonely/cer-manager/namespace/mnt"
+	"github.com/YLonely/cer-manager/namespace/uts"
 
 	nsapi "github.com/YLonely/cer-manager/api/services/namespace"
 
@@ -61,13 +64,13 @@ var _ services.Service = &namespaceService{}
 
 func (svr *namespaceService) Init() error {
 	var err error
-	if svr.managers[types.NamespaceUTS], err = ns.NewUTSManager(
+	if svr.managers[types.NamespaceUTS], err = uts.NewManager(
 		svr.root,
 		svr.config.Capacity[types.NamespaceUTS],
 	); err != nil {
 		return err
 	}
-	if svr.managers[types.NamespaceIPC], err = ns.NewIPCManager(
+	if svr.managers[types.NamespaceIPC], err = ipc.NewManager(
 		svr.root,
 		svr.config.Capacity[types.NamespaceIPC],
 		svr.config.Refs,
@@ -79,7 +82,7 @@ func (svr *namespaceService) Init() error {
 	if err != nil {
 		return err
 	}
-	if svr.managers[types.NamespaceMNT], err = ns.NewMountManager(
+	if svr.managers[types.NamespaceMNT], err = mnt.NewManager(
 		svr.root,
 		svr.config.Capacity[types.NamespaceMNT],
 		svr.config.Refs,

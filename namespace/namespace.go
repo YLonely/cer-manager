@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type NamespaceFunction func(map[string]interface{}) (string, error)
+type NamespaceFunction func(map[string]interface{}) ([]byte, error)
 
 var namespaceFunctions = map[NamespaceFunctionKey]map[types.NamespaceType]NamespaceFunction{}
 
@@ -34,13 +34,13 @@ func PutNamespaceFunction(key NamespaceFunctionKey, t types.NamespaceType, f Nam
 type NamespaceFunctionKey string
 
 const (
-	namespaceFunctionKeyCreate  NamespaceFunctionKey = "create"
-	namespaceFunctionKeyRelease NamespaceFunctionKey = "release"
-	namespaceFunctionKeyReset   NamespaceFunctionKey = "reset"
+	NamespaceFunctionKeyCreate  NamespaceFunctionKey = "create"
+	NamespaceFunctionKeyRelease NamespaceFunctionKey = "release"
+	NamespaceFunctionKeyReset   NamespaceFunctionKey = "reset"
 )
 
 const (
-	NamespaceErrorPrefix  string = "error:"
+	NamespaceErrorPrefix  string = "err:"
 	NamespaceReturnPrefix string = "ret:"
 )
 

@@ -1,21 +1,22 @@
 package namespace
 
 import (
-	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/pkg/errors"
 )
 
-type namespaceHelper struct {
-	stdin io.WriteCloser
-	cmd   *exec.Cmd
-	ret   string
+type NamespaceHelper struct {
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	Cmd      *exec.Cmd
+	Ret      []byte
+	cmdError bool
 }
 
 const (
@@ -26,7 +27,7 @@ const (
 	nsexecNSPathKey string = "__NS_PATH__"
 )
 
-func newNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.NamespaceType, args map[string]string) (*namespaceHelper, error) {
+func NewNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.NamespaceType, args map[string]string) (*NamespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec")
 	if args != nil {
 		for name, value := range args {
@@ -39,12 +40,12 @@ func newNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.Namespa
 		nsexecOpKey+"="+nsexecOpCreate,
 		nsexecNSTypeKey+"="+string(nsType),
 	)
-	return &namespaceHelper{
-		cmd: cmd,
+	return &NamespaceHelper{
+		Cmd: cmd,
 	}, nil
 }
 
-func newNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.NamespaceType, fd int, args map[string]string) (*namespaceHelper, error) {
+func NewNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.NamespaceType, fd int, args map[string]string) (*NamespaceHelper, error) {
 	if fd <= 0 {
 		return nil, errors.New("invalid fd value")
 	}
@@ -61,39 +62,65 @@ func newNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.Namespac
 		nsexecNSTypeKey+"="+string(nsType),
 		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), fd),
 	)
-	return &namespaceHelper{
-		cmd: cmd,
+	return &NamespaceHelper{
+		Cmd: cmd,
 	}, nil
 }
 
-func (helper *namespaceHelper) do() error {
-	stdin, err := helper.cmd.StdinPipe()
+// Do executes the command
+func (helper *NamespaceHelper) Do(release bool) (err error) {
+	helper.stdin, err = helper.Cmd.StdinPipe()
 	if err != nil {
-		return errors.Wrap(err, "can't get stdin from cmd")
+		err = errors.Wrap(err, "can't get stdin from cmd")
+		return
 	}
-	helper.stdin = stdin
-	stdout, err := helper.cmd.StdoutPipe()
+	helper.stdout, err = helper.Cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "can't get stdout from cmd")
+		err = errors.Wrap(err, "can't get stdout from cmd")
 	}
-	reader := bufio.NewReader(stdout)
-	err = helper.cmd.Start()
+	err = helper.Cmd.Start()
 	if err != nil {
-		return errors.Wrap(err, "can't start cmd")
+		err = errors.Wrap(err, "can't start cmd")
+		return
 	}
-	ret, err := reader.ReadString('\n')
+	defer func() {
+		if err != nil {
+			helper.Cmd.Process.Kill()
+		}
+	}()
+	// read prefix from stdout, which also means the execution of cmd is finished
+	prefix := make([]byte, 4)
+	_, err = io.ReadFull(helper.stdout, prefix)
 	if err != nil {
-		return errors.Wrap(err, "can't read ret value from cmd")
+		return err
 	}
-	ret = strings.Trim(ret, "\n")
-	if strings.HasPrefix(ret, NamespaceErrorPrefix) {
-		return errors.Errorf("execute cmd", strings.TrimPrefix(ret, NamespaceErrorPrefix))
+	if string(prefix) == NamespaceErrorPrefix {
+		helper.cmdError = true
 	}
-	helper.ret = strings.TrimPrefix(ret, NamespaceReturnPrefix)
-	return nil
+	if release {
+		err = helper.Release()
+		if err != nil {
+			err = errors.Wrap(err, "failed to release child process")
+			return
+		}
+	}
+	return
 }
 
-func (helper *namespaceHelper) release() error {
+// Release releases the child process
+func (helper *NamespaceHelper) Release() error {
 	io.WriteString(helper.stdin, "OK\n")
-	return helper.cmd.Wait()
+	content, err := ioutil.ReadAll(helper.stdout)
+	if err := helper.Cmd.Wait(); err != nil {
+		return err
+	}
+	if err != nil {
+		return errors.Wrap(err, "failed to read stdout of cmd")
+	}
+	str := string(content)
+	if helper.cmdError {
+		return errors.New(str)
+	}
+	helper.Ret = content
+	return nil
 }
