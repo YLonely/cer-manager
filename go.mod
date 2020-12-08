@@ -7,6 +7,7 @@ require (
 	github.com/Microsoft/hcsshim v0.8.10 // indirect
 	github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f // indirect
 	github.com/YLonely/criuimages v0.0.0-20201206130433-8274c008f96b
+	github.com/YLonely/ipcgo v0.0.0-20201208141213-ef895b68848c // indirect
 	github.com/containerd/cgroups v0.0.0-20201109155418-13abef5d31ec // indirect
 	github.com/containerd/containerd v1.4.1
 	github.com/containerd/continuity v0.0.0-20200928162600-f2cc35102c2a // indirect

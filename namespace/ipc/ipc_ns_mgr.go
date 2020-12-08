@@ -2,9 +2,11 @@ package ipc
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/YLonely/criuimages"
 	criutype "github.com/YLonely/criuimages/types"
+	"github.com/YLonely/ipcgo"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 )
@@ -161,31 +164,37 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read dir "+cp)
 	}
-	var varFilePath, shmFilePath, semFilePath, msgFilePath string
 	const (
 		varFilePrefix = "ipcns-var-"
 		shmFilePrefix = "ipcns-shm-"
 		semFilePrefix = "ipcns-sem-"
 		msgFilePrefix = "ipcns-msg-"
+		prefixLen     = len(varFilePrefix)
 	)
 	for _, info := range infos {
-		if strings.HasPrefix(info.Name(), varFilePrefix) {
-			varFilePath = path.Join(cp, info.Name())
-		} else if strings.HasPrefix(info.Name(), shmFilePrefix) {
-			shmFilePath = path.Join(cp, info.Name())
-		} else if strings.HasPrefix(info.Name(), msgFilePrefix) {
-			msgFilePath = path.Join(cp, info.Name())
-		} else if strings.HasPrefix(info.Name(), semFilePrefix) {
-			semFilePath = path.Join(cp, info.Name())
+		if len(info.Name()) > prefixLen {
+			pre := info.Name()[:prefixLen]
+			switch pre {
+			case varFilePrefix:
+				{
+					varPath := path.Join(cp, info.Name())
+					if err = restoreIPCVars(varPath); err != nil {
+						return nil, errors.Wrap(err, "failed to restore vars using "+varPath)
+					}
+				}
+			case shmFilePrefix:
+				{
+					shmPath := path.Join(cp, info.Name())
+					if err = restoreIPCShm(shmPath); err != nil {
+						return nil, errors.Wrap(err, "failed to restore shm using "+shmPath)
+					}
+				}
+			case msgFilePrefix:
+			case semFilePrefix:
+			default:
+			}
 		}
 	}
-
-	if err = restoreIPCVars(varFilePath); err != nil {
-		return nil, errors.Wrap(err, "failed to restore vars using "+varFilePath)
-	}
-
-	_, _, _ = shmFilePath, semFilePath, msgFilePath
-
 	return nil, nil
 }
 
@@ -203,6 +212,65 @@ func restoreIPCVars(p string) error {
 		return err
 	}
 	return nil
+}
+
+func restoreIPCShm(p string) error {
+	img, err := criuimages.New(p)
+	if err != nil {
+		return errors.Wrap(err, "failed to open image "+p)
+	}
+	for {
+		entry := &criutype.IpcShmEntry{}
+		if err = img.ReadOne(entry); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		nextID := strconv.FormatUint(uint64(entry.GetDesc().GetId()), 10)
+		if err = utils.SysCtlWrite(kernelShmNextID, nextID); err != nil {
+			return errors.Wrap(err, "failed to set shm next id to "+nextID)
+		}
+		key := int(entry.GetDesc().GetKey())
+		size := uint64(entry.GetSize())
+		mode := int(entry.GetDesc().GetMode())
+		shm, err := ipcgo.NewSharedMemory(key, size, mode)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create shm with key %v size %v mode %o", key, size, mode)
+		}
+		if uint32(shm.ID()) != entry.GetDesc().GetId() {
+			return errors.Errorf("shm id mismatch(%d instead of %d)", shm.ID(), entry.GetDesc().GetId())
+		}
+		uid, gid := entry.Desc.Uid, entry.Desc.Gid
+		if err = shm.SetStat(uid, gid, nil); err != nil {
+			return errors.Wrapf(err, "failed to set stat with uid %v gid %v", *uid, *gid)
+		}
+	}
+	return nil
+}
+
+func restoreShmPages(img *criuimages.Image, entry *criutype.IpcShmEntry, shm *ipcgo.SharedMemory) (err error) {
+	if err = shm.Attach(0, 0); err != nil {
+		return err
+	}
+	defer func() {
+		errClose := shm.Close()
+		if err != nil {
+			if errClose != nil {
+				err = errors.Wrap(err, errClose.Error())
+			}
+		} else {
+			err = errClose
+		}
+	}()
+	if entry.GetInPagemaps() {
+		return restoreFromPagemaps(shm)
+	}
+
+}
+
+func restoreFromPagemaps(shm *ipcgo.SharedMemory) error {
+
 }
 
 func devide(refs []string, defaultVars *criutype.IpcVarEntry, supplier services.CheckpointSupplier) (normals []string, specials []string, err error) {
@@ -286,4 +354,8 @@ func collect(map[string]interface{}) ([]byte, error) {
 		return nil, errors.Wrap(err, "failed to marshal entry")
 	}
 	return data, nil
+}
+
+func roundUp(num, multiple uint64) uint64 {
+	return ((num + multiple - 1) / multiple) * multiple
 }
