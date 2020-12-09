@@ -72,6 +72,7 @@ func (svr *namespaceService) Init() error {
 	if svr.managers[types.NamespaceUTS], err = uts.NewManager(
 		svr.root,
 		svr.config.Capacity[types.NamespaceUTS],
+		svr.config.Refs,
 	); err != nil {
 		return err
 	}
