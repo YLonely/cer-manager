@@ -89,11 +89,24 @@ func (m *manager) Get(arg interface{}) (fd int, info interface{}, err error) {
 	}
 	mgr, exists := m.managers[ref]
 	if !exists {
-		err = errors.Errorf("ipc namespace of %s does not exist", ref)
-	}
-	fd, info, err = mgr.Get(nil)
-	if err != nil {
-		err = errors.Wrap(err, "failed to get namespace for "+ref)
+		// we try to get a normal type of ipc for ref
+		mgr, exists = m.managers[ipcTypeNormal]
+		if exists {
+			fd, info, err = mgr.Get(nil)
+			if err != nil {
+				err = errors.Wrap(err, "failed to get a normal ipc")
+				return
+			}
+		} else {
+			err = errors.Errorf("ipc namespace of %s does not exist", ref)
+			return
+		}
+	} else {
+		fd, info, err = mgr.Get(nil)
+		if err != nil {
+			err = errors.Wrap(err, "failed to get namespace for "+ref)
+			return
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -270,7 +283,8 @@ func restoreShmPages(img *criuimages.Image, entry *criutype.IpcShmEntry, shm *ip
 		}
 	}()
 	if entry.GetInPagemaps() {
-		return restoreFromPagemaps(int(entry.GetDesc().GetId()), shm)
+		err = restoreFromPagemaps(int(entry.GetDesc().GetId()), shm)
+		return
 	}
 	// or we just read data from the image file
 	file := img.File()
