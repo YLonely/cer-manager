@@ -22,7 +22,6 @@ type PutNamespaceResponse struct {
 }
 
 type GetNamespaceResponse struct {
-	NSId int         `json:"namespace_id"`
 	Pid  int         `json:"pid"`
 	Fd   int         `json:"namespace_fd"`
 	Info interface{} `json:"info,omitempty"`

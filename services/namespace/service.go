@@ -24,6 +24,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+type serviceConfig struct {
+	Capacity map[types.NamespaceType]int `json:"capacity"`
+	Refs     []string                    `json:"image_refs"`
+}
+
 func New(root string, supplier services.CheckpointSupplier) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
@@ -114,11 +119,6 @@ func (svr *namespaceService) Stop() error {
 	return nil
 }
 
-type serviceConfig struct {
-	Capacity map[types.NamespaceType]int `json:"capacity"`
-	Refs     []string                    `json:"image_refs"`
-}
-
 func (svr *namespaceService) handleGetNamespace(conn net.Conn) error {
 	var r nsapi.GetNamespaceRequest
 	if err := utils.ReceiveObject(conn, &r); err != nil {
@@ -130,13 +130,12 @@ func (svr *namespaceService) handleGetNamespace(conn net.Conn) error {
 		rsp.Fd = -1
 		rsp.Info = "No such namespace"
 	} else {
-		id, fd, info, err := mgr.Get(r.Arg)
+		fd, info, err := mgr.Get(r.Arg)
 		if err != nil {
 			rsp.Fd = -1
 			rsp.Info = err.Error()
 		} else {
 			rsp.Fd = fd
-			rsp.NSId = id
 			rsp.Info = info
 			rsp.Pid = os.Getpid()
 		}

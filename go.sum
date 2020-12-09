@@ -15,8 +15,8 @@ github.com/Microsoft/hcsshim v0.8.10/go.mod h1:g5uw8EV2mAlzqe94tfNBNdr89fnbD/n3H
 github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f h1:UpWHrNP++ZiVuJbQbPUjjzBYG/+w028pDlzgoy/SM34=
 github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f/go.mod h1:30A5igQ91GEmhYJF8TaRP79pMBOYynRsyOByfVV0dU4=
 github.com/Shopify/logrus-bugsnag v0.0.0-20171204204709-577dee27f20d/go.mod h1:HI8ITrYtUY+O+ZhtlqUnD8+KwNPOyugEhfP9fdUIaEQ=
-github.com/YLonely/criuimages v0.0.0-20201206130433-8274c008f96b h1:DtC59ngagPJ6gFS6eexqGtQpoeFory+Gz14Z18Kyb1c=
-github.com/YLonely/criuimages v0.0.0-20201206130433-8274c008f96b/go.mod h1:FZvXAg3hdEh/+IctvQ4/FfeSO0X71rFBEIp1PbD7Pc4=
+github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f h1:eyviZN1CVpqoOvSwj2okLYTIL1AB/29TNwr/GPK1Dn8=
+github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f/go.mod h1:FZvXAg3hdEh/+IctvQ4/FfeSO0X71rFBEIp1PbD7Pc4=
 github.com/YLonely/ipcgo v0.0.0-20201208141213-ef895b68848c h1:fUEcoYmr2/swjsSgKyOn8ogqujxzYcoPbl+O7t+EGz0=
 github.com/YLonely/ipcgo v0.0.0-20201208141213-ef895b68848c/go.mod h1:rfWEXEU3g/f8VlBEULEv7t+iHdBr8JxZ/0Jf52xF++g=
 github.com/aws/aws-sdk-go v1.15.11/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=

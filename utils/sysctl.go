@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	sysPath string = "/proc/sys"
+	sysPath = "/proc/sys"
 )
 
 // SysCtlRead reads value from /proc/sys/${item}

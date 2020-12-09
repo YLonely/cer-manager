@@ -19,9 +19,7 @@ func NewManager(capacity int, t types.NamespaceType, newNamespaceFunc func(types
 	manager := &GenericManager{
 		capacity:         capacity,
 		usedNS:           map[int]*os.File{},
-		unusedNS:         map[int]*os.File{},
 		t:                t,
-		id:               0,
 		newNamespaceFunc: newNamespaceFunc,
 	}
 	if manager.newNamespaceFunc == nil {
@@ -35,11 +33,10 @@ func NewManager(capacity int, t types.NamespaceType, newNamespaceFunc func(types
 
 type GenericManager struct {
 	capacity int
-	// usedNS maps id to already used namespaces
+	// usedNS maps fd to file
 	usedNS map[int]*os.File
-	// unusedNS maps id to unused namespaces
-	unusedNS         map[int]*os.File
-	id               int
+	// unusedNS stores all unused namespace files
+	unusedNS         []*os.File
 	m                sync.Mutex
 	t                types.NamespaceType
 	newNamespaceFunc func(types.NamespaceType) (*os.File, error)
@@ -47,30 +44,29 @@ type GenericManager struct {
 
 var _ namespace.Manager = &GenericManager{}
 
-func (mgr *GenericManager) Get(interface{}) (id int, newNSFd int, info interface{}, err error) {
-	var f *os.File
+func (mgr *GenericManager) Get(interface{}) (fd int, info interface{}, err error) {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
-	if len(mgr.unusedNS) > 0 {
-		for id, f = range mgr.unusedNS {
-			delete(mgr.unusedNS, id)
-			mgr.usedNS[id] = f
-			newNSFd = int(f.Fd())
-			return
-		}
+	n := len(mgr.unusedNS)
+	if n > 0 {
+		file := mgr.unusedNS[n-1]
+		mgr.unusedNS = mgr.unusedNS[:n-1]
+		mgr.usedNS[int(file.Fd())] = file
+		fd = int(file.Fd())
+		return
 	}
 	err = errors.New("No namespace available")
 	return
 }
 
-func (mgr *GenericManager) Put(id int) error {
+func (mgr *GenericManager) Put(fd int) error {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
-	if f, exists := mgr.usedNS[id]; !exists {
-		return errors.Errorf("Namespace %d does not exists", id)
+	if f, exists := mgr.usedNS[fd]; !exists {
+		return errors.Errorf("Namespace %d does not exists", fd)
 	} else {
-		delete(mgr.usedNS, id)
-		mgr.unusedNS[id] = f
+		delete(mgr.usedNS, fd)
+		mgr.unusedNS = append(mgr.unusedNS, f)
 	}
 	return nil
 }
@@ -112,8 +108,7 @@ func (mgr *GenericManager) init() (err error) {
 		if newNSFile, err = mgr.newNamespaceFunc(mgr.t); err != nil {
 			return
 		} else {
-			mgr.unusedNS[mgr.id] = newNSFile
-			mgr.id++
+			mgr.unusedNS = append(mgr.unusedNS, newNSFile)
 		}
 	}
 	return

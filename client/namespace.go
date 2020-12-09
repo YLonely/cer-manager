@@ -31,7 +31,7 @@ func (client *Client) GetNamespace(t types.NamespaceType, arg interface{}) (name
 		return namespaceID, namespacePath, info, errors.New(rsp.Info.(string))
 	}
 	namespacePath = fmt.Sprintf("/proc/%d/fd/%d", rsp.Pid, rsp.Fd)
-	namespaceID = rsp.NSId
+	namespaceID = rsp.Fd
 	info = rsp.Info
 	return
 }

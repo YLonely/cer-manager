@@ -42,6 +42,7 @@ func NewManager(root string, capacity int, imageRefs []string, supplier services
 	ret := &manager{
 		supplier: supplier,
 		managers: map[string]*generic.GenericManager{},
+		usedID:   map[int]*generic.GenericManager{},
 	}
 	if len(normals) != 0 {
 		mgr, err := generic.NewManager(capacity*len(normals), types.NamespaceIPC, nil)
@@ -68,7 +69,8 @@ func NewManager(root string, capacity int, imageRefs []string, supplier services
 
 const (
 	functionKeyCollect namespace.NamespaceFunctionKey = "collect"
-	ipcTypeNormal      string                         = "normal"
+	ipcTypeNormal                                     = "normal"
+	pageSize                                          = 1 << 12
 )
 
 type manager struct {
@@ -79,7 +81,7 @@ type manager struct {
 	usedID map[int]*generic.GenericManager
 }
 
-func (m *manager) Get(arg interface{}) (id int, fd int, info interface{}, err error) {
+func (m *manager) Get(arg interface{}) (fd int, info interface{}, err error) {
 	ref, ok := arg.(string)
 	if !ok {
 		err = errors.New("arg must be a string")
@@ -89,29 +91,27 @@ func (m *manager) Get(arg interface{}) (id int, fd int, info interface{}, err er
 	if !exists {
 		err = errors.Errorf("ipc namespace of %s does not exist", ref)
 	}
-	id, fd, info, err = mgr.Get(nil)
+	fd, info, err = mgr.Get(nil)
 	if err != nil {
 		err = errors.Wrap(err, "failed to get namespace for "+ref)
 	}
-	// fd is unique, so use it as id
-	id = fd
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.usedID[id] = mgr
+	m.usedID[fd] = mgr
 	return
 }
 
-func (m *manager) Put(id int) error {
-	mgr, exists := m.usedID[id]
+func (m *manager) Put(fd int) error {
+	mgr, exists := m.usedID[fd]
 	if !exists {
 		return errors.New("invalid id")
 	}
-	if err := mgr.Put(id); err != nil {
+	if err := mgr.Put(fd); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.usedID, id)
+	delete(m.usedID, fd)
 	return nil
 }
 
@@ -160,7 +160,10 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 	if !ok || cp == "" {
 		return nil, errors.New("checkpoint must be provided")
 	}
-	infos, err := ioutil.ReadDir(cp)
+	if err := os.Chdir(cp); err != nil {
+		return nil, err
+	}
+	infos, err := ioutil.ReadDir(".")
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read dir "+cp)
 	}
@@ -177,16 +180,14 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 			switch pre {
 			case varFilePrefix:
 				{
-					varPath := path.Join(cp, info.Name())
-					if err = restoreIPCVars(varPath); err != nil {
-						return nil, errors.Wrap(err, "failed to restore vars using "+varPath)
+					if err = restoreIPCVars(info.Name()); err != nil {
+						return nil, errors.Wrap(err, "failed to restore vars using "+info.Name())
 					}
 				}
 			case shmFilePrefix:
 				{
-					shmPath := path.Join(cp, info.Name())
-					if err = restoreIPCShm(shmPath); err != nil {
-						return nil, errors.Wrap(err, "failed to restore shm using "+shmPath)
+					if err = restoreIPCShm(info.Name()); err != nil {
+						return nil, errors.Wrap(err, "failed to restore shm using "+info.Name())
 					}
 				}
 			case msgFilePrefix:
@@ -198,11 +199,12 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 	return nil, nil
 }
 
-func restoreIPCVars(p string) error {
-	img, err := criuimages.New(p)
+func restoreIPCVars(file string) error {
+	img, err := criuimages.New(file)
 	if err != nil {
 		return err
 	}
+	defer img.Close()
 	entry := &criutype.IpcVarEntry{}
 	if err = img.ReadOne(entry); err != nil {
 		return err
@@ -214,11 +216,12 @@ func restoreIPCVars(p string) error {
 	return nil
 }
 
-func restoreIPCShm(p string) error {
-	img, err := criuimages.New(p)
+func restoreIPCShm(file string) error {
+	img, err := criuimages.New(file)
 	if err != nil {
-		return errors.Wrap(err, "failed to open image "+p)
+		return errors.Wrap(err, "failed to open image "+file)
 	}
+	defer img.Close()
 	for {
 		entry := &criutype.IpcShmEntry{}
 		if err = img.ReadOne(entry); err != nil {
@@ -245,6 +248,9 @@ func restoreIPCShm(p string) error {
 		if err = shm.SetStat(uid, gid, nil); err != nil {
 			return errors.Wrapf(err, "failed to set stat with uid %v gid %v", *uid, *gid)
 		}
+		if err = restoreShmPages(img, entry, shm); err != nil {
+			return errors.Wrap(err, "failed to restore shm pages")
+		}
 	}
 	return nil
 }
@@ -264,13 +270,55 @@ func restoreShmPages(img *criuimages.Image, entry *criutype.IpcShmEntry, shm *ip
 		}
 	}()
 	if entry.GetInPagemaps() {
-		return restoreFromPagemaps(shm)
+		return restoreFromPagemaps(int(entry.GetDesc().GetId()), shm)
 	}
-
+	// or we just read data from the image file
+	file := img.File()
+	expectReadSize := roundUp(entry.GetSize(), 4)
+	_, err = io.CopyN(shm, file, int64(expectReadSize))
+	if err != nil {
+		err = errors.Wrap(err, "failed to copy data from image file to shm")
+	}
+	return
 }
 
-func restoreFromPagemaps(shm *ipcgo.SharedMemory) error {
-
+func restoreFromPagemaps(shmid int, shm *ipcgo.SharedMemory) error {
+	pagemapTemplate := "pagemap-shmem-%d.img"
+	pagesTemplate := "pages-%d.img"
+	pagemapName := fmt.Sprintf(pagemapTemplate, shmid)
+	pagemap, err := criuimages.New(pagemapName)
+	if err != nil {
+		return err
+	}
+	defer pagemap.Close()
+	//read pagemap head
+	head := &criutype.PagemapHead{}
+	if err = pagemap.ReadOne(head); err != nil {
+		return err
+	}
+	pagesName := fmt.Sprintf(pagesTemplate, head.GetPagesId())
+	pages, err := os.Open(pagesName)
+	if err != nil {
+		return err
+	}
+	defer pages.Close()
+	mapEntry := &criutype.PagemapEntry{}
+	for {
+		if err = pagemap.ReadOne(mapEntry); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		expectReadSize := int64(mapEntry.GetNrPages()) * pageSize
+		if _, err = shm.Seek(mapEntry.GetVaddr(), io.SeekCurrent); err != nil {
+			return errors.Wrapf(err, "failed to seek memory to %x", mapEntry.GetVaddr())
+		}
+		if _, err = io.CopyN(shm, pages, expectReadSize); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func devide(refs []string, defaultVars *criutype.IpcVarEntry, supplier services.CheckpointSupplier) (normals []string, specials []string, err error) {
@@ -321,6 +369,7 @@ func inDefaultNamespace(ref string, vars *criutype.IpcVarEntry, cp string) (bool
 	if err != nil {
 		return false, errors.Wrap(err, "failed to create image")
 	}
+	defer img.Close()
 	entry := &criutype.IpcVarEntry{}
 	if err = img.ReadOne(entry); err != nil {
 		return false, errors.Wrap(err, "failed to read entry")
