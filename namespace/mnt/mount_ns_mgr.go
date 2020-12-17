@@ -290,6 +290,17 @@ var mounts = []struct {
 		},
 		target: "/sys",
 	},
+	{
+		Mount: mount.Mount{
+			Source: "tmpfs",
+			Type:   "tmpfs",
+			Options: []string{
+				"size=65536k",
+				"mode=755",
+			},
+		},
+		target: "/run",
+	},
 }
 
 var readonlyPaths = []string{
@@ -396,9 +407,72 @@ func populateRootfs(rootfs, checkpoint string) error {
 			}
 		}
 	}
+	if err := restoreExtraMountpoints(rootfs, checkpoint); err != nil {
+		return errors.Wrap(err, "failed to restore extra mount points")
+	}
+
 	//restore files in fs
 	if err := restoreFiles(rootfs, checkpoint); err != nil {
 		return errors.Wrap(err, "failed to restore files")
+	}
+	return nil
+}
+
+func restoreExtraMountpoints(rootfs, checkpoint string) error {
+	const (
+		mountpointsPrefix = "mountpoints-"
+	)
+	mp := map[string]struct{}{
+		"/": {},
+	}
+	for _, m := range mounts {
+		mp[m.target] = struct{}{}
+	}
+	for _, m := range append(append([]string{}, readonlyPaths...), maskedPaths...) {
+		mp[m] = struct{}{}
+	}
+	mpFilePath := ""
+	infos, err := ioutil.ReadDir(checkpoint)
+	if err != nil {
+		return err
+	}
+	for _, info := range infos {
+		if strings.HasPrefix(info.Name(), mountpointsPrefix) {
+			mpFilePath = path.Join(checkpoint, info.Name())
+			break
+		}
+	}
+	if mpFilePath == "" {
+		return errors.New("failed to find mountpoints.img")
+	}
+	img, err := criuimages.New(mpFilePath)
+	if err != nil {
+		return errors.Wrapf(err, "failed to open image %s", mpFilePath)
+	}
+	defer img.Close()
+	entry := &criutype.MntEntry{}
+	for {
+		err := img.ReadOne(entry)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errors.Wrap(err, "failed to read entry")
+		}
+		if _, alreadyMounted := mp[entry.GetMountpoint()]; alreadyMounted {
+			continue
+		}
+		// we only handle the basic bind mount here for simplicity
+		flags := unix.MS_BIND
+		if entry.GetExtKey() == "" {
+			return errors.Errorf("encounter a non-binded mount at %s", entry.GetMountpoint())
+		}
+		if (entry.GetFlags() & unix.MS_RDONLY) > 0 {
+			flags |= unix.MS_RDONLY
+		}
+		if err := unix.Mount(entry.GetExtKey(), path.Join(rootfs, entry.GetMountpoint()), "", uintptr(flags), ""); err != nil {
+			return errors.Wrapf(err, "failed to bind mount %s to %s", entry.GetExtKey(), entry.GetMountpoint())
+		}
 	}
 	return nil
 }
