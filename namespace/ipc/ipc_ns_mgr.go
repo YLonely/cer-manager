@@ -27,6 +27,7 @@ func init() {
 	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyCreate, types.NamespaceIPC, populateNamespace)
 }
 
+// NewManager returns a new ipc namespace manager
 func NewManager(root string, capacity int, imageRefs []string, supplier services.CheckpointSupplier) (namespace.Manager, error) {
 	if capacity < 0 || len(imageRefs) == 0 {
 		return nil, errors.New("invalid initial args for ipc manager")
@@ -71,6 +72,7 @@ const (
 	functionKeyCollect namespace.NamespaceFunctionKey = "collect"
 	ipcTypeNormal                                     = "normal"
 	pageSize                                          = 1 << 12
+	maxMsgSize                                        = 8192
 )
 
 type manager struct {
@@ -204,12 +206,78 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 					}
 				}
 			case msgFilePrefix:
+				{
+					if err = restoreIPCMsg(info.Name()); err != nil {
+						return nil, errors.Wrap(err, "failed to restore msg using "+info.Name())
+					}
+				}
 			case semFilePrefix:
 			default:
 			}
 		}
 	}
 	return nil, nil
+}
+
+func restoreIPCMsg(file string) error {
+	img, err := criuimages.New(file)
+	if err != nil {
+		return err
+	}
+	defer img.Close()
+	entry := &criutype.IpcMsgEntry{}
+	for {
+		err = img.ReadOne(entry)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errors.Wrap(err, "failed to read msg entry")
+		}
+		str := strconv.FormatUint(uint64(entry.GetDesc().GetId()), 10)
+		if err = utils.SysCtlWrite(kernelMsgNextID, str); err != nil {
+			return errors.Wrap(err, "failed to write message next id")
+		}
+		mq, err := ipcgo.NewMessageQueue(int(entry.GetDesc().GetKey()), int(entry.GetDesc().GetMode()))
+		if err != nil {
+			return errors.Wrap(err, "failed to create a new message queue")
+		}
+		if mq.ID() != int(entry.GetDesc().GetId()) {
+			return errors.Errorf("failed to restore message id (%d instead of %d)", entry.GetDesc().GetId(), mq.ID())
+		}
+		if err = mq.SetStat(entry.GetDesc().Uid, entry.GetDesc().Gid, nil, nil); err != nil {
+			return errors.Wrap(err, "failed to set stat of the message queue")
+		}
+		if err = restoreMessages(img, entry, mq); err != nil {
+			return errors.Wrap(err, "failed to restore messages")
+		}
+	}
+	return nil
+}
+
+func restoreMessages(img *criuimages.Image, entry *criutype.IpcMsgEntry, mq *ipcgo.MessageQueue) error {
+	msg := &criutype.IpcMsg{}
+	for i := 0; i < int(entry.GetQnum()); i++ {
+		err := img.ReadOne(msg)
+		if err != nil {
+			return err
+		}
+		if msg.GetMsize() > maxMsgSize {
+			return errors.Errorf("unsupported message size: %d", msg.GetMsize())
+		}
+		m := &ipcgo.Message{
+			MType: int64(msg.GetMtype()),
+			MText: make([]byte, int(roundUp(uint64(msg.GetMsize()), 8))),
+		}
+		file := img.File()
+		if _, err = file.Read(m.MText); err != nil {
+			return errors.Wrap(err, "failed to read message text")
+		}
+		if err = mq.Send(m, ipcgo.IPC_NOWAIT); err != nil {
+			return errors.Wrap(err, "failed to send message to message queue")
+		}
+	}
+	return nil
 }
 
 func restoreIPCVars(file string) error {
@@ -222,8 +290,8 @@ func restoreIPCVars(file string) error {
 	if err = img.ReadOne(entry); err != nil {
 		return err
 	}
-	scatter := utils.NewFieldsScatterer(entry, targets)
-	if err = scatter.Scatter(); err != nil {
+	scatterer := utils.NewFieldsScatterer(entry, targets)
+	if err = scatterer.Scatter(); err != nil {
 		return err
 	}
 	return nil
@@ -272,16 +340,7 @@ func restoreShmPages(img *criuimages.Image, entry *criutype.IpcShmEntry, shm *ip
 	if err = shm.Attach(0, 0); err != nil {
 		return err
 	}
-	defer func() {
-		errClose := shm.Close()
-		if err != nil {
-			if errClose != nil {
-				err = errors.Wrap(err, errClose.Error())
-			}
-		} else {
-			err = errClose
-		}
-	}()
+	defer shm.Close()
 	if entry.GetInPagemaps() {
 		err = restoreFromPagemaps(int(entry.GetDesc().GetId()), shm)
 		return

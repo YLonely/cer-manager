@@ -19,6 +19,8 @@ github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f h1:eyviZN1CVpqo
 github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f/go.mod h1:FZvXAg3hdEh/+IctvQ4/FfeSO0X71rFBEIp1PbD7Pc4=
 github.com/YLonely/ipcgo v0.0.0-20201208141213-ef895b68848c h1:fUEcoYmr2/swjsSgKyOn8ogqujxzYcoPbl+O7t+EGz0=
 github.com/YLonely/ipcgo v0.0.0-20201208141213-ef895b68848c/go.mod h1:rfWEXEU3g/f8VlBEULEv7t+iHdBr8JxZ/0Jf52xF++g=
+github.com/YLonely/ipcgo v0.0.0-20201229065543-273a72bb3d57 h1:spIzHLeqsMmq7xfLsI1rQDPfR/0E3WrGZFh9enYruLA=
+github.com/YLonely/ipcgo v0.0.0-20201229065543-273a72bb3d57/go.mod h1:rfWEXEU3g/f8VlBEULEv7t+iHdBr8JxZ/0Jf52xF++g=
 github.com/aws/aws-sdk-go v1.15.11/go.mod h1:mFuSZ37Z9YOHbQEwBWztmVzqXrEkub65tZoCYDt7FT0=
 github.com/beorn7/perks v0.0.0-20160804104726-4c0e84591b9a/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/bitly/go-simplejson v0.5.0/go.mod h1:cXHtHw4XUPsvGaxgjIAn8PhEWG9NfngEKAMDJEczWVA=
