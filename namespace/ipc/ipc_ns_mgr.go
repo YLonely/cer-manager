@@ -1,6 +1,8 @@
 package ipc
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -194,29 +196,84 @@ func populateNamespace(args map[string]interface{}) ([]byte, error) {
 			pre := info.Name()[:prefixLen]
 			switch pre {
 			case varFilePrefix:
-				{
-					if err = restoreIPCVars(info.Name()); err != nil {
-						return nil, errors.Wrap(err, "failed to restore vars using "+info.Name())
-					}
+				if err = restoreIPCVars(info.Name()); err != nil {
+					return nil, errors.Wrap(err, "failed to restore vars using "+info.Name())
 				}
 			case shmFilePrefix:
-				{
-					if err = restoreIPCShm(info.Name()); err != nil {
-						return nil, errors.Wrap(err, "failed to restore shm using "+info.Name())
-					}
+				if err = restoreIPCShm(info.Name()); err != nil {
+					return nil, errors.Wrap(err, "failed to restore shm using "+info.Name())
 				}
 			case msgFilePrefix:
-				{
-					if err = restoreIPCMsg(info.Name()); err != nil {
-						return nil, errors.Wrap(err, "failed to restore msg using "+info.Name())
-					}
+				if err = restoreIPCMsg(info.Name()); err != nil {
+					return nil, errors.Wrap(err, "failed to restore msg using "+info.Name())
 				}
 			case semFilePrefix:
+				if err = restoreIPCSem(info.Name()); err != nil {
+					return nil, errors.Wrap(err, "failed to restore sem using "+info.Name())
+				}
 			default:
 			}
 		}
 	}
 	return nil, nil
+}
+
+func restoreIPCSem(file string) error {
+	img, err := criuimages.New(file)
+	if err != nil {
+		return err
+	}
+	defer img.Close()
+	entry := &criutype.IpcSemEntry{}
+	for {
+		err = img.ReadOne(entry)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errors.Wrap(err, "failed to read sem entry")
+		}
+		str := strconv.FormatUint(uint64(entry.GetDesc().GetId()), 10)
+		if err = utils.SysCtlWrite(kernelSemNextID, str); err != nil {
+			return errors.Wrap(err, "failed to write sem next id")
+		}
+		semSet, err := ipcgo.NewSemaphoreSet(int(entry.GetDesc().GetKey()), int(entry.GetNsems()), int(entry.GetDesc().GetMode()))
+		if err != nil {
+			return errors.Wrap(err, "failed to create a new semaphore set")
+		}
+		if semSet.ID() != int(entry.GetDesc().GetId()) {
+			return errors.Errorf("failed to restore sem id (%d instead of %d)", int(entry.GetDesc().GetId()), semSet.ID())
+		}
+		if err = semSet.SetStat(entry.GetDesc().Uid, entry.GetDesc().Gid, nil); err != nil {
+			return errors.New("failed to set stat")
+		}
+		if err = restoreSemValues(img, entry, semSet); err != nil {
+			return errors.Wrap(err, "failed to restore semaphore values")
+		}
+	}
+	return nil
+}
+
+func restoreSemValues(img *criuimages.Image, entry *criutype.IpcSemEntry, semSet *ipcgo.SemaphoreSet) error {
+	size := roundUp(uint64(2*entry.GetNsems()), 8)
+	bs := make([]byte, size)
+	file := img.File()
+	if _, err := io.ReadFull(file, bs); err != nil {
+		return errors.Wrap(err, "failed to read data from sem image")
+	}
+	values := make([]uint16, int(entry.GetNsems()))
+	buffer := bytes.NewBuffer(bs)
+	var tmp uint16
+	for i := range values {
+		if err := binary.Read(buffer, binary.LittleEndian, &tmp); err != nil {
+			return errors.Wrap(err, "failed to parse bytes data")
+		}
+		values[i] = tmp
+	}
+	if err := semSet.SetAll(values); err != nil {
+		return err
+	}
+	return nil
 }
 
 func restoreIPCMsg(file string) error {
@@ -270,7 +327,7 @@ func restoreMessages(img *criuimages.Image, entry *criutype.IpcMsgEntry, mq *ipc
 			MText: make([]byte, int(roundUp(uint64(msg.GetMsize()), 8))),
 		}
 		file := img.File()
-		if _, err = file.Read(m.MText); err != nil {
+		if _, err = io.ReadFull(file, m.MText); err != nil {
 			return errors.Wrap(err, "failed to read message text")
 		}
 		if err = mq.Send(m, ipcgo.IPC_NOWAIT); err != nil {
