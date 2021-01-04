@@ -14,3 +14,9 @@ const (
 	NamespaceService
 	CheckpointService
 )
+
+var Type2Services = map[ServiceType]string{
+	MainService:       "main",
+	NamespaceService:  "namespace",
+	CheckpointService: "checkpoint",
+}
