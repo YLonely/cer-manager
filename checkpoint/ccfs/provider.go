@@ -3,8 +3,10 @@ package ccfs
 import (
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/YLonely/cer-manager/checkpoint"
 	"github.com/pkg/errors"
@@ -13,7 +15,7 @@ import (
 
 // NewProvider returns a provider based on ccfs
 func NewProvider(registry string) (checkpoint.Provider, error) {
-	if err := mountCCFS(); err != nil {
+	if err := mountCCFS(registry); err != nil {
 		return nil, errors.Wrap(err, "failed to mount ccfs")
 	}
 	return &provider{
@@ -22,8 +24,12 @@ func NewProvider(registry string) (checkpoint.Provider, error) {
 }
 
 const (
-	mountpoint = "/tmp/.ccfs"
-	mountsFile = "/proc/mounts"
+	mountpoint       = "/tmp/.ccfs"
+	mountsFile       = "/proc/mounts"
+	ccfsStateFile    = ".end"
+	ccfsStateValid   = "valid"
+	ccfsStateInvalid = "invalid"
+	waitInterval     = time.Millisecond * 50
 )
 
 var _ checkpoint.Provider = &provider{}
@@ -32,27 +38,59 @@ type provider struct {
 	registry string
 }
 
-func (p *provider) Prepare(ref string, target string) error {
+func (p *provider) Prepare(ref string, target string) (err error) {
 	checkpointDir := path.Join(mountpoint, ref)
-	if _, err := os.Stat(checkpointDir); err == nil {
+	if _, err = os.Stat(checkpointDir); err == nil {
 		return nil
 	}
 	// we make a dir named ref and the ccfs will do the rest of the work
-	if err := os.Mkdir(checkpointDir, 0555); err != nil {
-		return errors.Wrap(err, "failed to create dir "+checkpointDir)
+	if err = os.Mkdir(checkpointDir, 0555); err != nil {
+		err = errors.Wrap(err, "failed to create dir "+checkpointDir)
+		return
 	}
-	if err := unix.Mount(checkpointDir, target, "", unix.MS_BIND, ""); err != nil {
-		return errors.Wrap(err, "failed to bind mount to target path")
+	defer func() {
+		if err != nil {
+			os.RemoveAll(checkpointDir)
+		}
+	}()
+	statPath := path.Join(checkpointDir, ccfsStateFile)
+	for i := 0; i < 5; i++ {
+		time.Sleep(waitInterval)
+		if _, err = os.Stat(statPath); err != nil {
+			if !os.IsNotExist(err) {
+				return
+			}
+		} else {
+			break
+		}
 	}
-	return nil
+	if err != nil {
+		err = errors.New("wait ccfs time out")
+		return
+	}
+	var stat []byte
+	stat, err = ioutil.ReadFile(statPath)
+	if err != nil {
+		return
+	}
+	switch string(stat) {
+	case ccfsStateValid:
+	case ccfsStateInvalid:
+		return errors.New("invalid ccfs dir")
+	default:
+		return errors.New("unknown ccfs state type")
+	}
+	if err = unix.Mount(checkpointDir, target, "", unix.MS_BIND, ""); err != nil {
+		err = errors.Wrap(err, "failed to bind mount to target path")
+	}
+	return
 }
 
 func (p *provider) Remove(target string) error {
-	unix.Unmount(target, unix.MNT_DETACH)
-	return nil
+	return unix.Unmount(target, unix.MNT_DETACH)
 }
 
-func mountCCFS() error {
+func mountCCFS(registry string) error {
 	mounted, err := checkMount()
 	if err != nil {
 		return err
@@ -60,7 +98,18 @@ func mountCCFS() error {
 	if mounted {
 		return nil
 	}
-	//TODO: mount ccfs here
+	if _, err = os.Stat(mountpoint); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if err = os.Mkdir(mountpoint, 0555); err != nil {
+			return err
+		}
+	}
+	cmd := exec.Command("ccfs", registry, mountpoint)
+	if err = cmd.Start(); err != nil {
+		return errors.Wrap(err, "failed to start ccfs")
+	}
 	return nil
 }
 
@@ -71,6 +120,9 @@ func checkMount() (bool, error) {
 	}
 	mounts := strings.Split(string(content), "\n")
 	for _, m := range mounts {
+		if len(strings.Trim(m, " \n\t")) == 0 {
+			continue
+		}
 		parts := strings.Split(m, " ")
 		if len(parts) < 2 {
 			return false, errors.New("error parse mountpoints")
