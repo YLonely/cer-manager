@@ -30,38 +30,40 @@ func New(root string) (services.Service, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read config file")
 	}
-	c := config{}
+	var providerConfigObj json.RawMessage
+	c := config{
+		Config: &providerConfigObj,
+	}
 	if json.Unmarshal(content, &c); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal config file")
 	}
-	p, err := initProvider(c)
+	s := &service{
+		root:    path.Join(root, "checkpoint"),
+		router:  services.NewRouter(),
+		targets: map[string]struct{}{},
+	}
+	err = s.initProvider(c)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create provider")
 	}
-	return &service{
-		c:        c,
-		root:     path.Join(root, "checkpoint"),
-		router:   services.NewRouter(),
-		targets:  map[string]struct{}{},
-		provider: p,
-	}, nil
+	return s, nil
 }
 
 type service struct {
-	c        config
-	root     string
-	router   services.Router
-	provider cp.Provider
+	root         string
+	router       services.Router
+	provider     cp.Provider
+	referenceMgr cp.ReferenceManager
 	//targets records all the target path where the checkpoint files located
 	targets map[string]struct{}
 	m       sync.Mutex
 }
 
 type config struct {
-	// ccfs or containerd
+	// type of the checkpoint provider (ccfs or containerd)
 	Type string `json:"type"`
-	// example: localhost:5000
-	Registry string `json:"registry"`
+	// config for the checkpoint provider
+	Config interface{} `json:"config"`
 }
 
 var _ services.Service = &service{}
@@ -100,12 +102,12 @@ func (s *service) Get(ref string) (string, error) {
 		return "", errors.New("empty ref")
 	}
 	target := path.Join(s.root, ref)
-	if _, exists := s.targets[target]; exists {
-		return target, nil
-	}
 	s.m.Lock()
 	defer s.m.Unlock()
 	if _, exists := s.targets[target]; exists {
+		if s.referenceMgr != nil {
+			s.referenceMgr.Add(ref)
+		}
 		return target, nil
 	}
 	if err := os.MkdirAll(target, 0755); err != nil {
@@ -113,6 +115,9 @@ func (s *service) Get(ref string) (string, error) {
 	}
 	if err := s.provider.Prepare(ref, target); err != nil {
 		return "", err
+	}
+	if s.referenceMgr != nil {
+		s.referenceMgr.Add(ref)
 	}
 	s.targets[target] = struct{}{}
 	return target, nil
@@ -137,25 +142,32 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	return nil
 }
 
-func initProvider(c config) (cp.Provider, error) {
+func (s *service) initProvider(c config) error {
 	var p cp.Provider
 	var err error
 	switch c.Type {
 	case "ccfs":
-		if c.Registry == "" {
-			return nil, errors.New("empty registry")
+		var cacheConfig ccfs.Config
+		if err = json.Unmarshal(*(c.Config.(*json.RawMessage)), &cacheConfig); err != nil {
+			return err
 		}
-		p, err = ccfs.NewProvider(c.Registry)
+		p, err = ccfs.NewProvider(cacheConfig)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create ccfs provider")
+			return errors.Wrap(err, "failed to create ccfs provider")
 		}
+		s.referenceMgr = p.(cp.ReferenceManager)
 	case "containerd":
-		p, err = containerd.NewProvider()
+		var cacheConfig containerd.Config
+		if err = json.Unmarshal(*(c.Config.(*json.RawMessage)), &cacheConfig); err != nil {
+			return err
+		}
+		p, err = containerd.NewProvider(cacheConfig)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create containerd provider")
+			return errors.Wrap(err, "failed to create containerd provider")
 		}
 	default:
-		return nil, errors.New("invalid provider type")
+		return errors.New("invalid provider type")
 	}
-	return p, nil
+	s.provider = p
+	return nil
 }

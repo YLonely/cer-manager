@@ -17,8 +17,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-// NewProvider returns a new checkpoint provider based on containerd
-func NewProvider() (checkpoint.Provider, error) {
+//Config for the provider
+type Config struct{}
+
+// NewProvider returns a new checkpoint whose backend is containerd
+func NewProvider(c Config) (checkpoint.Provider, error) {
 	return &provider{}, nil
 }
 
@@ -36,7 +39,7 @@ func (p *provider) Remove(target string) error {
 	return nil
 }
 
-func (p *provider) Prepare(ref string, target string) error {
+func (p *provider) Prepare(checkpointName string, target string) error {
 	stateFilePath := path.Join(target, stateFile)
 	if _, err := os.Stat(stateFilePath); err == nil {
 		return nil
@@ -52,7 +55,7 @@ func (p *provider) Prepare(ref string, target string) error {
 	}
 	defer client.Close()
 	ctx := namespaces.WithNamespace(context.Background(), "default")
-	image, err := client.GetImage(ctx, ref)
+	image, err := client.GetImage(ctx, checkpointName)
 	if err != nil {
 		return errors.Wrap(err, "failed to get image from containerd")
 	}

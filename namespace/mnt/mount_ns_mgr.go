@@ -370,7 +370,7 @@ func (mgr *mountManager) makeCreateNewNamespace(rootfsName, rootfsPath, checkpoi
 			return nil, errors.Wrap(err, "failed to open namespace file")
 		}
 		if err := helper.Release(); err != nil {
-			return nil, errors.Wrap(err, "failed to release child process")
+			return nil, err
 		}
 		mgr.allBundles[int(newNSFile.Fd())] = bundle
 		return newNSFile, nil

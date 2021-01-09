@@ -6,6 +6,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.15 // indirect
 	github.com/Microsoft/hcsshim v0.8.10 // indirect
 	github.com/Microsoft/hcsshim/test v0.0.0-20201111181659-f14fc666e78f // indirect
+	github.com/YLonely/ccfs v0.0.0-20210108090051-508c455ba6b8
 	github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f
 	github.com/YLonely/ipcgo v0.0.0-20201229065543-273a72bb3d57
 	github.com/containerd/cgroups v0.0.0-20201109155418-13abef5d31ec // indirect
@@ -22,13 +23,14 @@ require (
 	github.com/opencontainers/runc v0.1.1 // indirect
 	github.com/opencontainers/selinux v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
+	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sirupsen/logrus v1.7.0
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635 // indirect
 	github.com/urfave/cli v1.22.5
 	go.etcd.io/bbolt v1.3.5 // indirect
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
-	golang.org/x/sys v0.0.0-20201113233024-12cec1faf1ba
+	golang.org/x/sys v0.0.0-20210105210732-16f7687f5001
 	google.golang.org/grpc v1.33.2 // indirect
 	google.golang.org/protobuf v1.25.0
 	gotest.tools/v3 v3.0.3 // indirect

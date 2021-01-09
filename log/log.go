@@ -63,6 +63,10 @@ func Logger(t cerm.ServiceType, method string) *logrus.Entry {
 	return ret
 }
 
+func Raw() *logrus.Logger {
+	return logrus.StandardLogger()
+}
+
 func WithInterface(entry *logrus.Entry, key string, value interface{}) *logrus.Entry {
 	valueJSON, _ := json.Marshal(value)
 	str := strings.ReplaceAll(string(valueJSON), "\"", "")
