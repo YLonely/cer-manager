@@ -105,9 +105,6 @@ func (s *service) Get(ref string) (string, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 	if _, exists := s.targets[target]; exists {
-		if s.referenceMgr != nil {
-			s.referenceMgr.Add(ref)
-		}
 		return target, nil
 	}
 	if err := os.MkdirAll(target, 0755); err != nil {
@@ -115,9 +112,6 @@ func (s *service) Get(ref string) (string, error) {
 	}
 	if err := s.provider.Prepare(ref, target); err != nil {
 		return "", err
-	}
-	if s.referenceMgr != nil {
-		s.referenceMgr.Add(ref)
 	}
 	s.targets[target] = struct{}{}
 	return target, nil
@@ -134,6 +128,9 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	resp.Path, err = s.Get(r.Ref)
 	if err != nil {
 		log.Logger(cerm.CheckpointService, "GetCheckpoint").Error(err.Error())
+	}
+	if s.referenceMgr != nil {
+		s.referenceMgr.Add(r.Ref)
 	}
 	if err := utils.SendObject(c, resp); err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/YLonely/ccfs/cache"
@@ -38,6 +39,9 @@ func NewProvider(c Config) (checkpoint.Provider, error) {
 	}
 	if c.Exec == "" {
 		c.Exec = "ccfs"
+	}
+	if err = unix.Unmount(mountPath, unix.MNT_DETACH); err != nil && err != syscall.EINVAL {
+		return nil, errors.Wrap(err, "failed to umount ccfs")
 	}
 	if err = os.MkdirAll(cachePath, 0644); err != nil {
 		return nil, err
@@ -149,19 +153,19 @@ func (p *provider) Release(checkpointName string) {
 
 func (p *provider) scan() {
 	ticker := time.NewTicker(scanInterval)
-	changedCheckpoint := []string{}
+	changedCheckpoint := map[string]struct{}{}
 	for {
 		p.mu.Lock()
 		for name, refCount := range p.refs {
 			if p.lastRefs[name] != refCount {
 				p.lastRefs[name] = refCount
-				changedCheckpoint = append(changedCheckpoint, name)
+				changedCheckpoint[name] = struct{}{}
 			}
 		}
 		p.mu.Unlock()
-		for _, name := range changedCheckpoint {
+		for name := range changedCheckpoint {
 			dynamicWeight := p.lastRefs[name]
-			weightFilePath := path.Join(p.config.CacheDirectory, name, ccfsWeightFile)
+			weightFilePath := path.Join(p.mountpoint, name, ccfsWeightFile)
 			data, err := ioutil.ReadFile(weightFilePath)
 			if err != nil {
 				log.Raw().WithError(err).Warnf("failed to read weight file %s", weightFilePath)
@@ -171,26 +175,21 @@ func (p *provider) scan() {
 			parts := strings.Split(weightStr, ",")
 			if len(parts) != 2 {
 				log.Raw().Errorf("weight file %s has invalid content %q", weightFilePath, weightStr)
+				continue
 			}
 			parts[1] = strconv.Itoa(dynamicWeight)
 			weightStr = strings.Join(parts, ",")
 			if err = ioutil.WriteFile(weightFilePath, []byte(weightStr), 0); err != nil {
 				log.Raw().WithError(err).Errorf("failed to write file %s", weightFilePath)
 			}
+			// if no error occurs, we can delete the name from map
+			delete(changedCheckpoint, name)
 		}
-		changedCheckpoint = changedCheckpoint[:0]
 		<-ticker.C
 	}
 }
 
 func mountCCFS(mountPath string, c Config) error {
-	mounted, err := checkMount(mountPath)
-	if err != nil {
-		return err
-	}
-	if mounted {
-		return nil
-	}
 	cacheConfig := cache.Config{
 		Directory:              c.CacheDirectory,
 		Level1MaxLRUCacheEntry: c.CacheEntriesPerCheckpoint,
@@ -216,26 +215,4 @@ func mountCCFS(mountPath string, c Config) error {
 		return errors.Wrap(err, "failed to start ccfs")
 	}
 	return nil
-}
-
-func checkMount(mountPath string) (bool, error) {
-	content, err := ioutil.ReadFile(mountsInfo)
-	if err != nil {
-		return false, errors.Wrap(err, "failed to read /proc/mounts")
-	}
-	mounts := strings.Split(string(content), "\n")
-	for _, m := range mounts {
-		if len(strings.Trim(m, " \n\t")) == 0 {
-			continue
-		}
-		parts := strings.Split(m, " ")
-		if len(parts) < 2 {
-			return false, errors.New("error parse mountpoints")
-		}
-		fsName, mp := parts[0], parts[1]
-		if fsName == "ccfs" && path.Clean(mp) == path.Clean(mountPath) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
