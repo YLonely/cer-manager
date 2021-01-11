@@ -55,8 +55,9 @@ type service struct {
 	provider     cp.Provider
 	referenceMgr cp.ReferenceManager
 	//targets records all the target path where the checkpoint files located
-	targets map[string]struct{}
-	m       sync.Mutex
+	targets      map[string]struct{}
+	m            sync.Mutex
+	doneProvider func() error
 }
 
 type config struct {
@@ -86,6 +87,11 @@ func (s *service) Handle(ctx context.Context, c net.Conn) {
 
 func (s *service) Stop() error {
 	var failed []string
+	if s.doneProvider != nil {
+		if err := s.doneProvider(); err != nil {
+			failed = append(failed, err.Error())
+		}
+	}
 	for t := range s.targets {
 		if err := s.provider.Remove(t); err != nil {
 			failed = append(failed, fmt.Sprintf("remove %s with error %s", t, err.Error()))
@@ -140,7 +146,6 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 }
 
 func (s *service) initProvider(c config) error {
-	var p cp.Provider
 	var err error
 	switch c.Type {
 	case "ccfs":
@@ -148,23 +153,22 @@ func (s *service) initProvider(c config) error {
 		if err = json.Unmarshal(*(c.Config.(*json.RawMessage)), &cacheConfig); err != nil {
 			return err
 		}
-		p, err = ccfs.NewProvider(cacheConfig)
+		s.provider, s.doneProvider, err = ccfs.NewProvider(cacheConfig)
 		if err != nil {
 			return errors.Wrap(err, "failed to create ccfs provider")
 		}
-		s.referenceMgr = p.(cp.ReferenceManager)
+		s.referenceMgr = s.provider.(cp.ReferenceManager)
 	case "containerd":
 		var cacheConfig containerd.Config
 		if err = json.Unmarshal(*(c.Config.(*json.RawMessage)), &cacheConfig); err != nil {
 			return err
 		}
-		p, err = containerd.NewProvider(cacheConfig)
+		s.provider, err = containerd.NewProvider(cacheConfig)
 		if err != nil {
 			return errors.Wrap(err, "failed to create containerd provider")
 		}
 	default:
 		return errors.New("invalid provider type")
 	}
-	s.provider = p
 	return nil
 }

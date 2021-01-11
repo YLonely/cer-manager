@@ -29,7 +29,7 @@ type Config struct {
 }
 
 // NewProvider returns a provider based on ccfs
-func NewProvider(c Config) (checkpoint.Provider, error) {
+func NewProvider(c Config) (checkpoint.Provider, func() error, error) {
 	var err error
 	cachePath, mountPath := path.Join(defaultCCFSRoot, "cache"), path.Join(defaultCCFSRoot, "mountpoint")
 	if c.CacheDirectory != "" {
@@ -40,17 +40,18 @@ func NewProvider(c Config) (checkpoint.Provider, error) {
 	if c.Exec == "" {
 		c.Exec = "ccfs"
 	}
-	if err = unix.Unmount(mountPath, unix.MNT_DETACH); err != nil && err != syscall.EINVAL {
-		return nil, errors.Wrap(err, "failed to umount ccfs")
+	if err = unix.Unmount(mountPath, unix.MNT_DETACH); err != nil && err != syscall.EINVAL && err != syscall.ENOENT {
+		return nil, nil, errors.Wrap(err, "failed to umount ccfs")
 	}
 	if err = os.MkdirAll(cachePath, 0644); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err = os.MkdirAll(mountPath, 0644); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err = mountCCFS(mountPath, c); err != nil {
-		return nil, errors.Wrap(err, "failed to mount ccfs")
+	var done func() error
+	if done, err = mountCCFS(mountPath, c); err != nil {
+		return nil, nil, errors.Wrap(err, "failed to mount ccfs")
 	}
 	p := &provider{
 		mountpoint: mountPath,
@@ -59,7 +60,7 @@ func NewProvider(c Config) (checkpoint.Provider, error) {
 		config:     c,
 	}
 	go p.scan()
-	return p, nil
+	return p, done, nil
 }
 
 const (
@@ -189,7 +190,7 @@ func (p *provider) scan() {
 	}
 }
 
-func mountCCFS(mountPath string, c Config) error {
+func mountCCFS(mountPath string, c Config) (func() error, error) {
 	cacheConfig := cache.Config{
 		Directory:              c.CacheDirectory,
 		Level1MaxLRUCacheEntry: c.CacheEntriesPerCheckpoint,
@@ -198,21 +199,37 @@ func mountCCFS(mountPath string, c Config) error {
 	}
 	data, err := json.MarshalIndent(cacheConfig, "", "")
 	if err != nil {
-		return errors.Wrap(err, "failed to marshal cache config")
+		return nil, errors.Wrap(err, "failed to marshal cache config")
 	}
 	err = ioutil.WriteFile(path.Join(c.CacheDirectory, "cache-config.json"), data, 0644)
 	if err != nil {
-		return errors.Wrap(err, "failed to write cache config")
+		return nil, errors.Wrap(err, "failed to write cache config")
 	}
 	cmd := exec.Command(
 		c.Exec,
+		"--debug",
 		"--config",
 		path.Join(c.CacheDirectory, "cache-config.json"),
 		c.Registry,
 		mountPath,
 	)
-	if err = cmd.Start(); err != nil {
-		return errors.Wrap(err, "failed to start ccfs")
+	logf, err := os.OpenFile(path.Join(defaultCCFSRoot, "ccfs.log"), os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create log file for ccfs")
 	}
-	return nil
+	cmd.Stdout = logf
+	cmd.Stderr = logf
+	if err = cmd.Start(); err != nil {
+		return nil, errors.Wrap(err, "failed to start ccfs")
+	}
+	done := func() error {
+		defer logf.Close()
+		if err := unix.Unmount(mountPath, unix.MNT_DETACH); err != nil {
+			return errors.Wrap(err, "failed to unmount ccfs")
+		}
+		cmd.Process.Kill()
+		cmd.Wait()
+		return nil
+	}
+	return done, nil
 }
