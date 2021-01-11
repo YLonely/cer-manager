@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/YLonely/cer-manager/api/types"
+	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/namespace"
 	"github.com/YLonely/cer-manager/namespace/generic"
 	"github.com/YLonely/cer-manager/services"
@@ -42,6 +43,7 @@ func NewManager(root string, capacity int, imageRefs []string, supplier services
 	if err != nil {
 		return nil, err
 	}
+	log.Raw().Debugf("images with normal ipc %v, images with special ipc %v", normals, specials)
 	ret := &manager{
 		supplier: supplier,
 		managers: map[string]*generic.GenericManager{},

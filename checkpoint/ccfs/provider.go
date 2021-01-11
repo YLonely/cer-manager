@@ -20,12 +20,12 @@ import (
 )
 
 type Config struct {
-	Exec                      string `json:"exec"`
-	CacheDirectory            string `json:"cache_directory"`
+	Exec                      string `json:"exec,omitempty"`
+	CacheDirectory            string `json:"cache_directory,omitempty"`
 	Registry                  string `json:"registry"`
-	CacheEntriesPerCheckpoint int    `json:"cache_entries_per_checkpoint"`
-	MaxCacheEntries           int    `json:"max_cache_entries"`
-	GCInterval                int    `json:"gc_interval"`
+	CacheEntriesPerCheckpoint int    `json:"cache_entries_per_checkpoint,omitempty"`
+	MaxCacheEntries           int    `json:"max_cache_entries,omitempty"`
+	GCInterval                int    `json:"gc_interval,omitempty"`
 }
 
 // NewProvider returns a provider based on ccfs
@@ -123,7 +123,7 @@ func (p *provider) Prepare(checkpointName string, target string) (err error) {
 	switch string(stat) {
 	case ccfsStateValid:
 	case ccfsStateInvalid:
-		return errors.New("invalid ccfs dir")
+		return errors.Errorf("invalid ccfs dir, ccfs log file at %s", path.Join(defaultCCFSRoot, "ccfs.log"))
 	default:
 		return errors.New("unknown ccfs state type")
 	}
@@ -201,7 +201,7 @@ func mountCCFS(mountPath string, c Config) (func() error, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal cache config")
 	}
-	err = ioutil.WriteFile(path.Join(c.CacheDirectory, "cache-config.json"), data, 0644)
+	err = ioutil.WriteFile(path.Join(defaultCCFSRoot, "cache-config.json"), data, 0644)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to write cache config")
 	}
@@ -209,7 +209,7 @@ func mountCCFS(mountPath string, c Config) (func() error, error) {
 		c.Exec,
 		"--debug",
 		"--config",
-		path.Join(c.CacheDirectory, "cache-config.json"),
+		path.Join(defaultCCFSRoot, "cache-config.json"),
 		c.Registry,
 		mountPath,
 	)

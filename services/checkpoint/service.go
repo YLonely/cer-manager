@@ -128,7 +128,7 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	if err := utils.ReceiveObject(c, &r); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "request", r).Info()
+	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "request", r).Debug()
 	var resp api.GetCheckpointResponse
 	var err error
 	resp.Path, err = s.Get(r.Ref)
@@ -141,7 +141,7 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	if err := utils.SendObject(c, resp); err != nil {
 		return err
 	}
-	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "response", resp).Info()
+	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "response", resp).Debug()
 	return nil
 }
 
@@ -158,6 +158,7 @@ func (s *service) initProvider(c config) error {
 			return errors.Wrap(err, "failed to create ccfs provider")
 		}
 		s.referenceMgr = s.provider.(cp.ReferenceManager)
+		log.WithInterface(log.Logger(cerm.CheckpointService, "initProvider"), "config", cacheConfig).Debug("use the checkpoint provider whose backend is ccfs")
 	case "containerd":
 		var cacheConfig containerd.Config
 		if err = json.Unmarshal(*(c.Config.(*json.RawMessage)), &cacheConfig); err != nil {
@@ -167,6 +168,7 @@ func (s *service) initProvider(c config) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to create containerd provider")
 		}
+		log.WithInterface(log.Logger(cerm.CheckpointService, "initProvider"), "config", cacheConfig).Debug("use the checkpoint provider whose backend is containerd")
 	default:
 		return errors.New("invalid provider type")
 	}

@@ -89,14 +89,14 @@ func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
 		svrType, err := utils.ReceiveServiceType(conn)
 		if err != nil {
 			if err != io.EOF {
-				log.Logger(cerm.MainService, "").WithError(err).Error("Can't handle service type")
+				log.Raw().WithError(err).Error("invalid request")
 			}
 			conn.Close()
 			return
 		}
 		if svr, exists := s.services[svrType]; !exists {
 			conn.Close()
-			log.Logger(cerm.MainService, "").WithField("serviceType", svrType).Error("No such service")
+			log.Raw().Errorf("invalid service type %v", svrType)
 		} else {
 			svr.Handle(ctx, conn)
 		}
@@ -112,7 +112,8 @@ func (s *Server) Shutdown() {
 	s.group.Wait()
 	for t, ss := range s.services {
 		if err := ss.Stop(); err != nil {
-			log.Logger(cerm.MainService, "").WithField("serviceType", t).WithError(err).Error()
+			svrName := cerm.Type2Services[t]
+			log.Raw().Errorf("%s service shutdown with error %v", svrName, err)
 		}
 	}
 }

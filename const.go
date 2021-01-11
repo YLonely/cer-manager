@@ -10,13 +10,11 @@ const (
 )
 
 const (
-	MainService ServiceType = iota + 10
-	NamespaceService
+	NamespaceService ServiceType = iota + 10
 	CheckpointService
 )
 
 var Type2Services = map[ServiceType]string{
-	MainService:       "main",
 	NamespaceService:  "namespace",
 	CheckpointService: "checkpoint",
 }
