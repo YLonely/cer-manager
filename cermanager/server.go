@@ -14,6 +14,7 @@ import (
 	"github.com/YLonely/cer-manager/services/checkpoint"
 	"github.com/YLonely/cer-manager/services/namespace"
 	"github.com/YLonely/cer-manager/utils"
+	"github.com/pkg/errors"
 )
 
 const DefaultRootPath = "/var/lib/cermanager"
@@ -41,11 +42,11 @@ func NewServer() (*Server, error) {
 	}
 	checkpointSvr, err := checkpoint.New(DefaultRootPath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create checkpoint service")
 	}
 	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(services.CheckpointSupplier))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create namespace service")
 	}
 	svr := &Server{
 		services: map[cerm.ServiceType]services.Service{
@@ -71,6 +72,7 @@ func (s *Server) Start(ctx context.Context) chan error {
 				errorC <- err
 				return
 			}
+			s.group.Add(1)
 			go s.serve(ctx, conn, errorC)
 			select {
 			case <-ctx.Done():
@@ -83,7 +85,6 @@ func (s *Server) Start(ctx context.Context) chan error {
 }
 
 func (s *Server) serve(ctx context.Context, conn net.Conn, errorC chan error) {
-	s.group.Add(1)
 	defer s.group.Done()
 	for {
 		svrType, err := utils.ReceiveServiceType(conn)

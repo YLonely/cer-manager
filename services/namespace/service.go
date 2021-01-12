@@ -75,7 +75,7 @@ func (svr *namespaceService) Init() error {
 		svr.config.Capacity[types.NamespaceUTS],
 		svr.config.Refs,
 	); err != nil {
-		return err
+		return errors.Wrap(err, "failed to create uts namespace manager")
 	}
 	if svr.managers[types.NamespaceIPC], err = ipc.NewManager(
 		svr.root,
@@ -83,7 +83,7 @@ func (svr *namespaceService) Init() error {
 		svr.config.Refs,
 		svr.supplier,
 	); err != nil {
-		return err
+		return errors.Wrap(err, "failed to create ipc namespace manager")
 	}
 	p, err := containerd.NewProvider()
 	if err != nil {
@@ -96,7 +96,7 @@ func (svr *namespaceService) Init() error {
 		p,
 		svr.supplier,
 	); err != nil {
-		return err
+		return errors.Wrap(err, "failed to create mount namespace namager")
 	}
 	svr.router.AddHandler(nsapi.MethodGetNamespace, svr.handleGetNamespace)
 	svr.router.AddHandler(nsapi.MethodPutNamespace, svr.handlePutNamespace)
