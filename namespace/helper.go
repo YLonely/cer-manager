@@ -3,9 +3,9 @@ package namespace
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/pkg/errors"
@@ -16,7 +16,7 @@ type NamespaceHelper struct {
 	stdout   io.ReadCloser
 	Cmd      *exec.Cmd
 	Ret      []byte
-	cmdError bool
+	released bool
 }
 
 const (
@@ -85,42 +85,83 @@ func (helper *NamespaceHelper) Do(release bool) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			helper.Cmd.Process.Kill()
+			helper.forceRelease()
 		}
 	}()
-	// read prefix from stdout, which also means the execution of cmd is finished
-	prefix := make([]byte, 4)
-	_, err = io.ReadFull(helper.stdout, prefix)
+	// read output of child process
+	var (
+		prefix  []byte
+		content []byte
+	)
+	prefix, content, err = readContent(helper.stdout)
 	if err != nil {
-		return err
+		err = errors.Wrap(err, "failed to read output of child process")
+		return
 	}
 	if string(prefix) == NamespaceErrorPrefix {
-		helper.cmdError = true
+		err = errors.Wrap(errors.New(string(content)), "child process returns an error")
+		return
 	}
+	helper.Ret = content
 	if release {
 		err = helper.Release()
 		if err != nil {
-			err = errors.Wrap(err, "failed to release child process")
+			err = errors.Wrap(err, "release child process with error")
 			return
 		}
 	}
 	return
 }
 
-// Release releases the child process
+// Release releases the child process and get the return content from child process
 func (helper *NamespaceHelper) Release() error {
-	io.WriteString(helper.stdin, "OK\n")
-	content, err := ioutil.ReadAll(helper.stdout)
+	if _, err := io.WriteString(helper.stdin, "OK\n"); err != nil {
+		helper.forceRelease()
+		return errors.Wrap(err, "failed to send exit signal to child process")
+	}
+	helper.released = true
 	if err := helper.Cmd.Wait(); err != nil {
-		return err
+		return errors.Wrap(err, "failed to wait child process")
 	}
-	if err != nil {
-		return errors.Wrap(err, "failed to read stdout of cmd")
-	}
-	str := string(content)
-	if helper.cmdError {
-		return errors.New(str)
-	}
-	helper.Ret = content
 	return nil
+}
+
+func (helper *NamespaceHelper) forceRelease() {
+	if !helper.released {
+		helper.Cmd.Process.Kill()
+		helper.Cmd.Wait()
+		helper.released = true
+	}
+}
+
+func readContent(r io.Reader) ([]byte, []byte, error) {
+	prefix := make([]byte, 4)
+	_, err := io.ReadFull(r, prefix)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "can't read any byte from cmd's stdout")
+	}
+	sizeBytes := []byte{}
+	b := make([]byte, 1)
+	for {
+		if _, err := r.Read(b); err != nil {
+			return nil, nil, err
+		}
+		if b[0] == ',' {
+			break
+		}
+		sizeBytes = append(sizeBytes, b[0])
+	}
+	size, err := strconv.Atoi(string(sizeBytes))
+	if err != nil {
+		return nil, nil, err
+	}
+	if size == 0 {
+		return prefix, []byte{}, nil
+	}
+	content := make([]byte, size)
+	_, err = io.ReadFull(r, content)
+	if err != nil {
+		return nil, nil, err
+	}
+	return prefix, content, nil
 }

@@ -152,8 +152,9 @@ func (m *manager) CleanUp() error {
 }
 
 func makeCreateNewIPCNamespace(checkpointPath string) func(t types.NamespaceType) (*os.File, error) {
-	return func(types.NamespaceType) (*os.File, error) {
-		h, err := namespace.NewNamespaceExecCreateHelper(
+	return func(types.NamespaceType) (f *os.File, err error) {
+		var h *namespace.NamespaceHelper
+		h, err = namespace.NewNamespaceExecCreateHelper(
 			namespace.NamespaceFunctionKeyCreate,
 			types.NamespaceIPC,
 			map[string]string{
@@ -164,11 +165,12 @@ func makeCreateNewIPCNamespace(checkpointPath string) func(t types.NamespaceType
 			return nil, errors.Wrap(err, "failed to create ipc create helper")
 		}
 		if err = h.Do(false); err != nil {
-			return nil, err
+			return
 		}
-		f, err := namespace.OpenNSFile(types.NamespaceIPC, h.Cmd.Process.Pid)
+		defer h.Release()
+		f, err = namespace.OpenNSFile(types.NamespaceIPC, h.Cmd.Process.Pid)
 		if err != nil {
-			return nil, err
+			return
 		}
 		return f, h.Release()
 	}

@@ -46,11 +46,11 @@ var nsexecCommand = cli.Command{
 				},
 			)
 			if err != nil {
-				printError("invoke function with error %s", err.Error())
+				printError("namespace function returns error %s", err.Error())
 				return nil
 			}
 		}
-		fmt.Printf("ret:%s", ret)
+		fmt.Print("ret:" + withSizePrefixed(string(ret)))
 		// wait for the parent to release me
 		var dummy string
 		fmt.Scanln(&dummy)
@@ -59,5 +59,11 @@ var nsexecCommand = cli.Command{
 }
 
 func printError(format string, a ...interface{}) {
-	fmt.Printf("err:"+format, a...)
+	str := fmt.Sprintf(format, a...)
+	fmt.Print("err:" + withSizePrefixed(str))
+}
+
+func withSizePrefixed(data string) string {
+	n := len(data)
+	return fmt.Sprintf("%d,%s", n, data)
 }

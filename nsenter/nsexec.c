@@ -15,7 +15,8 @@
 char msg_arr[1024];
 
 void error(char *msg) {
-    printf("err:%s", msg);
+    int n = strlen(msg);
+    printf("err:%d,%s", n, msg);
     exit(0);
 }
 

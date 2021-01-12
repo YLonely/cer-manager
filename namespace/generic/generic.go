@@ -122,13 +122,10 @@ func genericCreateNewNamespace(t types.NamespaceType) (*os.File, error) {
 	if err := h.Do(false); err != nil {
 		return nil, errors.Wrapf(err, "failed to create namespace of type %s", string(t))
 	}
+	defer h.Release()
 	nsFile, err := namespace.OpenNSFile(t, h.Cmd.Process.Pid)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open namespace file")
-	}
-	err = h.Release()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to release child process")
 	}
 	return nsFile, nil
 }
