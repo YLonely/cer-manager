@@ -213,7 +213,7 @@ func mountCCFS(mountPath string, c Config) (func() error, error) {
 		c.Registry,
 		mountPath,
 	)
-	logf, err := os.OpenFile(path.Join(defaultCCFSRoot, "ccfs.log"), os.O_WRONLY|os.O_CREATE, 0644)
+	logf, err := os.OpenFile(path.Join(defaultCCFSRoot, "ccfs.log"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create log file for ccfs")
 	}
