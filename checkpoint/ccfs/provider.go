@@ -20,12 +20,13 @@ import (
 )
 
 type Config struct {
-	Exec                      string `json:"exec,omitempty"`
-	CacheDirectory            string `json:"cache_directory,omitempty"`
-	Registry                  string `json:"registry"`
-	CacheEntriesPerCheckpoint int    `json:"cache_entries_per_checkpoint,omitempty"`
-	MaxCacheEntries           int    `json:"max_cache_entries,omitempty"`
-	GCInterval                int    `json:"gc_interval,omitempty"`
+	Exec                      string         `json:"exec,omitempty"`
+	CacheDirectory            string         `json:"cache_directory,omitempty"`
+	Registry                  string         `json:"registry"`
+	CacheEntriesPerCheckpoint int            `json:"cache_entries_per_checkpoint,omitempty"`
+	MaxCacheEntries           int            `json:"max_cache_entries,omitempty"`
+	GCInterval                int            `json:"gc_interval,omitempty"`
+	StaticWeights             map[string]int `json:"weights,omitempty"`
 }
 
 // NewProvider returns a provider based on ccfs
@@ -180,6 +181,12 @@ func (p *provider) scan() {
 			if len(parts) != 2 {
 				log.Raw().Errorf("weight file %s has invalid content %q", weightFilePath, weightStr)
 				continue
+			}
+			if w, exists := p.config.StaticWeights[name]; exists {
+				sw := strconv.Itoa(w)
+				if parts[0] != sw {
+					parts[0] = sw
+				}
 			}
 			parts[1] = strconv.Itoa(dynamicWeight)
 			weightStr = strings.Join(parts, ",")
