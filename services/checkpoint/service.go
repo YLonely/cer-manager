@@ -88,14 +88,14 @@ func (s *service) Handle(ctx context.Context, c net.Conn) {
 
 func (s *service) Stop() error {
 	var failed []string
-	if s.doneProvider != nil {
-		if err := s.doneProvider(); err != nil {
-			failed = append(failed, err.Error())
-		}
-	}
 	for t := range s.targets {
 		if err := s.provider.Remove(t); err != nil {
 			failed = append(failed, fmt.Sprintf("remove %s with error %s", t, err.Error()))
+		}
+	}
+	if s.doneProvider != nil {
+		if err := s.doneProvider(); err != nil {
+			failed = append(failed, err.Error())
 		}
 	}
 	if len(failed) != 0 {
