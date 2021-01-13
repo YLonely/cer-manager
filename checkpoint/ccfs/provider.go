@@ -146,6 +146,9 @@ func (p *provider) Add(checkpointName string) {
 func (p *provider) Release(checkpointName string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if _, exists := p.refs[checkpointName]; !exists {
+		return
+	}
 	p.refs[checkpointName]--
 	if p.refs[checkpointName] < 0 {
 		p.refs[checkpointName] = 0
