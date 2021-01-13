@@ -2,6 +2,7 @@ package checkpoint
 
 const (
 	MethodGetCheckpoint string = "Get"
+	MethodPutCheckpoint string = "Put"
 )
 
 type GetCheckpointRequest struct {
@@ -10,4 +11,12 @@ type GetCheckpointRequest struct {
 
 type GetCheckpointResponse struct {
 	Path string `json:"path"`
+}
+
+type PutCheckpointRequest struct {
+	Ref string `json:"ref"`
+}
+
+type PutCheckpointResponse struct {
+	Error string `json:"error,omitempty"`
 }

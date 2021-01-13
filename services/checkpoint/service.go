@@ -74,6 +74,7 @@ func (s *service) Init() error {
 		return err
 	}
 	s.router.AddHandler(api.MethodGetCheckpoint, s.handleGetCheckpoint)
+	s.router.AddHandler(api.MethodPutCheckpoint, s.handlePutCheckpoint)
 	log.Logger(cerm.CheckpointService, "Init").Info("Service initialized")
 	return nil
 }
@@ -133,7 +134,7 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	var err error
 	resp.Path, err = s.Get(r.Ref)
 	if err != nil {
-		log.Logger(cerm.CheckpointService, "GetCheckpoint").Error(err.Error())
+		log.Logger(cerm.CheckpointService, "GetCheckpoint").Error(err)
 	}
 	if s.referenceMgr != nil {
 		s.referenceMgr.Add(r.Ref)
@@ -142,6 +143,23 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 		return err
 	}
 	log.WithInterface(log.Logger(cerm.CheckpointService, "GetCheckpoint"), "response", resp).Debug()
+	return nil
+}
+
+func (s *service) handlePutCheckpoint(c net.Conn) error {
+	var r api.PutCheckpointRequest
+	if err := utils.ReceiveObject(c, &r); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.CheckpointService, "PutCheckpoint"), "request", r).Debug()
+	var resp api.GetCheckpointResponse
+	if s.referenceMgr != nil {
+		s.referenceMgr.Release(r.Ref)
+	}
+	if err := utils.SendObject(c, resp); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.CheckpointService, "PutCheckpoint"), "response", resp).Debug()
 	return nil
 }
 

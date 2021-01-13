@@ -24,3 +24,22 @@ func (client *Client) GetCheckpoint(ref string) (string, error) {
 	}
 	return rsp.Path, nil
 }
+
+// PutCheckpoint release the checkpoint
+func (client *Client) PutCheckpoint(ref string) error {
+	req := checkpoint.PutCheckpointRequest{
+		Ref: ref,
+	}
+	data, err := utils.Pack(cermanager.CheckpointService, checkpoint.MethodPutCheckpoint, req)
+	if err != nil {
+		return err
+	}
+	if err = utils.Send(client.c, data); err != nil {
+		return err
+	}
+	rsp := checkpoint.PutCheckpointResponse{}
+	if err = utils.ReceiveObject(client.c, &rsp); err != nil {
+		return err
+	}
+	return nil
+}
