@@ -44,7 +44,7 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create checkpoint service")
 	}
-	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(services.CheckpointSupplier))
+	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(checkpoint.Supplier))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create namespace service")
 	}

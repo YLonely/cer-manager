@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	api "github.com/YLonely/cer-manager/api/services/checkpoint"
+	"github.com/YLonely/cer-manager/api/types"
 	cp "github.com/YLonely/cer-manager/checkpoint"
 	"github.com/YLonely/cer-manager/checkpoint/ccfs"
 	"github.com/YLonely/cer-manager/checkpoint/containerd"
@@ -53,7 +54,7 @@ type service struct {
 	root         string
 	router       services.Router
 	provider     cp.Provider
-	referenceMgr cp.ReferenceManager
+	referenceMgr cp.SharedManager
 	//targets records all the target path where the checkpoint files located
 	targets      map[string]struct{}
 	m            sync.Mutex
@@ -81,7 +82,7 @@ func (s *service) Init() error {
 
 func (s *service) Handle(ctx context.Context, c net.Conn) {
 	if err := s.router.Handle(c); err != nil {
-		log.Logger(cerm.CheckpointService, "").Error(err.Error())
+		log.Logger(cerm.CheckpointService, "").Error(err)
 		c.Close()
 	}
 }
@@ -90,7 +91,7 @@ func (s *service) Stop() error {
 	var failed []string
 	for t := range s.targets {
 		if err := s.provider.Remove(t); err != nil {
-			failed = append(failed, fmt.Sprintf("remove %s with error %s", t, err.Error()))
+			failed = append(failed, fmt.Sprintf("remove %s with error %s", t, err))
 		}
 	}
 	if s.doneProvider != nil {
@@ -104,11 +105,11 @@ func (s *service) Stop() error {
 	return nil
 }
 
-func (s *service) Get(ref string) (string, error) {
-	if ref == "" {
+func (s *service) Get(ref types.Reference) (string, error) {
+	if ref.Name == "" {
 		return "", errors.New("empty ref")
 	}
-	target := path.Join(s.root, ref)
+	target := path.Join(s.root, ref.Digest())
 	s.m.Lock()
 	defer s.m.Unlock()
 	if _, exists := s.targets[target]; exists {
@@ -175,7 +176,7 @@ func (s *service) initProvider(c config) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to create ccfs provider")
 		}
-		s.referenceMgr = s.provider.(cp.ReferenceManager)
+		s.referenceMgr = s.provider.(cp.SharedManager)
 		log.WithInterface(log.Logger(cerm.CheckpointService, "initProvider"), "config", cacheConfig).Debug("use the checkpoint provider whose backend is ccfs")
 	case "containerd":
 		var cacheConfig containerd.Config

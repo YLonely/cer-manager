@@ -10,10 +10,10 @@ import (
 	"github.com/YLonely/cer-manager/utils"
 )
 
-func (client *Client) GetNamespace(t types.NamespaceType, arg interface{}) (namespaceID int, namespacePath string, info interface{}, err error) {
+func (client *Client) GetNamespace(t types.NamespaceType, ref types.Reference) (namespaceID int, namespacePath string, info interface{}, err error) {
 	req := namespace.GetNamespaceRequest{
 		T:   t,
-		Arg: arg,
+		Ref: ref,
 	}
 	var data []byte
 	data, err = utils.Pack(cerm.NamespaceService, namespace.MethodGetNamespace, req)

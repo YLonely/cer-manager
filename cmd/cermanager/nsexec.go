@@ -46,7 +46,7 @@ var nsexecCommand = cli.Command{
 				},
 			)
 			if err != nil {
-				printError("namespace function returns error %s", err.Error())
+				printError("namespace function returns error %s", err)
 				return nil
 			}
 		}

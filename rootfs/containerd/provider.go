@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/mount"
 	"github.com/YLonely/cer-manager/rootfs"
 	cd "github.com/containerd/containerd"
@@ -34,7 +35,7 @@ const (
 	checkpointSnapshotterNameLabel = "io.containerd.checkpoint.snapshotter"
 )
 
-func (p *provider) Prepare(name, key string) ([]mount.Mount, error) {
+func (p *provider) Prepare(ref types.Reference, key string) ([]mount.Mount, error) {
 	ps := platforms.DefaultString()
 	pt, err := platforms.Parse(ps)
 	if err != nil {
@@ -45,14 +46,14 @@ func (p *provider) Prepare(name, key string) ([]mount.Mount, error) {
 		return nil, errors.Wrap(err, "failed to create containerd client")
 	}
 	defer client.Close()
-	ctx := namespaces.WithNamespace(context.Background(), "default")
+	ctx := namespaces.WithNamespace(context.Background(), ref.GetLabelWithKey("namespace"))
 	leasesManager := client.LeasesService()
 	_, err = leasesManager.Create(ctx, leases.WithID(key))
 	if err != nil && !errdefs.IsAlreadyExists(err) {
 		return nil, err
 	}
 	ctx = leases.WithLease(ctx, key)
-	checkpoint, err := client.GetImage(ctx, name)
+	checkpoint, err := client.GetImage(ctx, ref.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get image")
 	}
@@ -63,11 +64,11 @@ func (p *provider) Prepare(name, key string) ([]mount.Mount, error) {
 	}
 	baseImageName, exists := index.Annotations[checkpointImageNameLabel]
 	if !exists || baseImageName == "" {
-		return nil, errors.Errorf("%s is not a container checkpoint", name)
+		return nil, errors.Errorf("%s is not a container checkpoint", ref.String())
 	}
 	snapshotter, exists := index.Annotations[checkpointSnapshotterNameLabel]
 	if !exists || snapshotter == "" {
-		return nil, errors.Errorf("Can't find snapshotter in image %s", name)
+		return nil, errors.Errorf("Can't find snapshotter in image %s", ref.String())
 	}
 	baseImage, err := client.GetImage(ctx, baseImageName)
 	if err != nil {

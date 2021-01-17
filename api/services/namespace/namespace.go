@@ -9,7 +9,7 @@ const (
 
 type GetNamespaceRequest struct {
 	T   types.NamespaceType `json:"namespace_type"`
-	Arg interface{}         `json:"arg,omitempty"`
+	Ref types.Reference     `json:"arg,omitempty"`
 }
 
 type PutNamespaceRequest struct {

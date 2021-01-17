@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/checkpoint"
 	cd "github.com/containerd/containerd"
 	"github.com/containerd/containerd/archive"
@@ -39,7 +40,7 @@ func (p *provider) Remove(target string) error {
 	return nil
 }
 
-func (p *provider) Prepare(checkpointName string, target string) error {
+func (p *provider) Prepare(ref types.Reference, target string) error {
 	stateFilePath := path.Join(target, stateFile)
 	if _, err := os.Stat(stateFilePath); err == nil {
 		return nil
@@ -54,8 +55,8 @@ func (p *provider) Prepare(checkpointName string, target string) error {
 		return errors.Wrap(err, "failed to create containerd client")
 	}
 	defer client.Close()
-	ctx := namespaces.WithNamespace(context.Background(), "default")
-	image, err := client.GetImage(ctx, checkpointName)
+	ctx := namespaces.WithNamespace(context.Background(), ref.GetLabelWithKey("namespace"))
+	image, err := client.GetImage(ctx, ref.Name)
 	if err != nil {
 		return errors.Wrap(err, "failed to get image from containerd")
 	}

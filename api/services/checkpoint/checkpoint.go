@@ -1,12 +1,14 @@
 package checkpoint
 
+import "github.com/YLonely/cer-manager/api/types"
+
 const (
 	MethodGetCheckpoint string = "Get"
 	MethodPutCheckpoint string = "Put"
 )
 
 type GetCheckpointRequest struct {
-	Ref string `json:"ref"`
+	Ref types.Reference `json:"ref"`
 }
 
 type GetCheckpointResponse struct {
@@ -14,7 +16,7 @@ type GetCheckpointResponse struct {
 }
 
 type PutCheckpointRequest struct {
-	Ref string `json:"ref"`
+	Ref types.Reference `json:"ref"`
 }
 
 type PutCheckpointResponse struct {

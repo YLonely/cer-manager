@@ -3,11 +3,12 @@ package client
 import (
 	cermanager "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/api/services/checkpoint"
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/utils"
 )
 
 // GetCheckpoint returns the dir path in which checkpoint files of the container with ref located
-func (client *Client) GetCheckpoint(ref string) (string, error) {
+func (client *Client) GetCheckpoint(ref types.Reference) (string, error) {
 	req := checkpoint.GetCheckpointRequest{
 		Ref: ref,
 	}
@@ -26,7 +27,7 @@ func (client *Client) GetCheckpoint(ref string) (string, error) {
 }
 
 // PutCheckpoint release the checkpoint
-func (client *Client) PutCheckpoint(ref string) error {
+func (client *Client) PutCheckpoint(ref types.Reference) error {
 	req := checkpoint.PutCheckpointRequest{
 		Ref: ref,
 	}

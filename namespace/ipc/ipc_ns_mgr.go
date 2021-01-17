@@ -16,7 +16,7 @@ import (
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/namespace"
 	"github.com/YLonely/cer-manager/namespace/generic"
-	"github.com/YLonely/cer-manager/services"
+	"github.com/YLonely/cer-manager/services/checkpoint"
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/YLonely/criuimages"
 	criutype "github.com/YLonely/criuimages/types"
@@ -31,15 +31,15 @@ func init() {
 }
 
 // NewManager returns a new ipc namespace manager
-func NewManager(root string, capacity int, imageRefs []string, supplier services.CheckpointSupplier) (namespace.Manager, error) {
-	if capacity < 0 || len(imageRefs) == 0 {
+func NewManager(root string, capacity int, refs []types.Reference, supplier checkpoint.Supplier) (namespace.Manager, error) {
+	if capacity < 0 || len(refs) == 0 {
 		return nil, errors.New("invalid initial args for ipc manager")
 	}
 	defaultVars, err := getDefaultNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to collect varaibles from new ipc namespace")
 	}
-	normals, specials, err := devide(imageRefs, defaultVars, supplier)
+	normals, specials, err := devide(refs, defaultVars, supplier)
 	if err != nil {
 		return nil, err
 	}
@@ -60,13 +60,13 @@ func NewManager(root string, capacity int, imageRefs []string, supplier services
 		for _, ref := range specials {
 			cp, err := supplier.Get(ref)
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to get checkpoint path for "+ref)
+				return nil, errors.Wrap(err, "failed to get checkpoint path for "+ref.String())
 			}
 			mgr, err := generic.NewManager(capacity, types.NamespaceIPC, makeCreateNewIPCNamespace(cp))
 			if err != nil {
 				return nil, err
 			}
-			ret.managers[ref] = mgr
+			ret.managers[ref.Digest()] = mgr
 		}
 	}
 	return ret, nil
@@ -81,24 +81,19 @@ const (
 
 type manager struct {
 	managers map[string]*generic.GenericManager
-	supplier services.CheckpointSupplier
+	supplier checkpoint.Supplier
 	mu       sync.Mutex
 	// usedID maps id to the manager that generates it
 	usedID map[int]*generic.GenericManager
 }
 
-func (m *manager) Get(arg interface{}) (fd int, info interface{}, err error) {
-	ref, ok := arg.(string)
-	if !ok {
-		err = errors.New("arg must be a string")
-		return
-	}
-	mgr, exists := m.managers[ref]
+func (m *manager) Get(ref types.Reference) (fd int, info interface{}, err error) {
+	mgr, exists := m.managers[ref.Digest()]
 	if !exists {
 		// we try to get a normal type of ipc for ref
 		mgr, exists = m.managers[ipcTypeNormal]
 		if exists {
-			fd, info, err = mgr.Get(nil)
+			fd, info, err = mgr.Get(types.Reference{})
 			if err != nil {
 				err = errors.Wrap(err, "failed to get a normal ipc")
 				return
@@ -108,9 +103,9 @@ func (m *manager) Get(arg interface{}) (fd int, info interface{}, err error) {
 			return
 		}
 	} else {
-		fd, info, err = mgr.Get(nil)
+		fd, info, err = mgr.Get(types.Reference{})
 		if err != nil {
-			err = errors.Wrap(err, "failed to get namespace for "+ref)
+			err = errors.Wrap(err, "failed to get namespace for "+ref.String())
 			return
 		}
 	}
@@ -142,7 +137,7 @@ func (m *manager) CleanUp() error {
 	var failed []string
 	for ref, mgr := range m.managers {
 		if err := mgr.CleanUp(); err != nil {
-			failed = append(failed, fmt.Sprintf("clean up manager for %s, error %s", ref, err.Error()))
+			failed = append(failed, fmt.Sprintf("clean up manager for %s, error %s", ref, err))
 		}
 	}
 	if len(failed) != 0 {
@@ -455,16 +450,16 @@ func restoreFromPagemaps(shmid int, shm *ipcgo.SharedMemory) error {
 	return nil
 }
 
-func devide(refs []string, defaultVars *criutype.IpcVarEntry, supplier services.CheckpointSupplier) (normals []string, specials []string, err error) {
+func devide(refs []types.Reference, defaultVars *criutype.IpcVarEntry, supplier checkpoint.Supplier) (normals []types.Reference, specials []types.Reference, err error) {
 	var cp string
 	var inDefault bool
 	for _, ref := range refs {
 		cp, err = supplier.Get(ref)
 		if err != nil {
-			err = errors.Wrap(err, "failed to get checkpoint path for "+ref)
+			err = errors.Wrap(err, "failed to get checkpoint path for "+ref.String())
 			return
 		}
-		inDefault, err = inDefaultNamespace(ref, defaultVars, cp)
+		inDefault, err = inDefaultNamespace(defaultVars, cp)
 		if err != nil {
 			return
 		}
@@ -477,7 +472,7 @@ func devide(refs []string, defaultVars *criutype.IpcVarEntry, supplier services.
 	return
 }
 
-func inDefaultNamespace(ref string, vars *criutype.IpcVarEntry, cp string) (bool, error) {
+func inDefaultNamespace(vars *criutype.IpcVarEntry, cp string) (bool, error) {
 	extraFilePrefixes := dumpFileNamePrefixes[:3]
 	varsFilePrefix := dumpFileNamePrefixes[3]
 	var varsFileName string

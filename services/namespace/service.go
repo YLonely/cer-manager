@@ -13,6 +13,7 @@ import (
 	"github.com/YLonely/cer-manager/namespace/ipc"
 	"github.com/YLonely/cer-manager/namespace/mnt"
 	"github.com/YLonely/cer-manager/namespace/uts"
+	"github.com/YLonely/cer-manager/services/checkpoint"
 
 	nsapi "github.com/YLonely/cer-manager/api/services/namespace"
 
@@ -26,10 +27,13 @@ import (
 
 type serviceConfig struct {
 	Capacity map[types.NamespaceType]int `json:"capacity,omitempty"`
-	Refs     []string                    `json:"image_refs"`
+	Refs     []struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"checkpoint_refs"`
 }
 
-func New(root string, supplier services.CheckpointSupplier) (services.Service, error) {
+func New(root string, supplier checkpoint.Supplier) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
 	config := defaultConfig()
@@ -49,8 +53,13 @@ func New(root string, supplier services.CheckpointSupplier) (services.Service, e
 		return nil, err
 	}
 	log.WithInterface(log.Logger(cerm.NamespaceService, "New"), "config", config).Debug("create service with config")
+	refs := make([]types.Reference, 0, len(config.Refs))
+	for _, ref := range config.Refs {
+		refs = append(refs, types.NewContainerdReference(ref.Name, ref.Namespace))
+	}
 	return &namespaceService{
-		config:   config,
+		capacity: config.Capacity,
+		refs:     refs,
 		managers: map[types.NamespaceType]ns.Manager{},
 		root:     root,
 		router:   services.NewRouter(),
@@ -59,11 +68,12 @@ func New(root string, supplier services.CheckpointSupplier) (services.Service, e
 }
 
 type namespaceService struct {
-	config   serviceConfig
+	capacity map[types.NamespaceType]int
+	refs     []types.Reference
 	managers map[types.NamespaceType]ns.Manager
 	root     string
 	router   services.Router
-	supplier services.CheckpointSupplier
+	supplier checkpoint.Supplier
 }
 
 var _ services.Service = &namespaceService{}
@@ -72,15 +82,15 @@ func (svr *namespaceService) Init() error {
 	var err error
 	if svr.managers[types.NamespaceUTS], err = uts.NewManager(
 		svr.root,
-		svr.config.Capacity[types.NamespaceUTS],
-		svr.config.Refs,
+		svr.capacity[types.NamespaceUTS],
+		svr.refs,
 	); err != nil {
 		return errors.Wrap(err, "failed to create uts namespace manager")
 	}
 	if svr.managers[types.NamespaceIPC], err = ipc.NewManager(
 		svr.root,
-		svr.config.Capacity[types.NamespaceIPC],
-		svr.config.Refs,
+		svr.capacity[types.NamespaceIPC],
+		svr.refs,
 		svr.supplier,
 	); err != nil {
 		return errors.Wrap(err, "failed to create ipc namespace manager")
@@ -91,8 +101,8 @@ func (svr *namespaceService) Init() error {
 	}
 	if svr.managers[types.NamespaceMNT], err = mnt.NewManager(
 		svr.root,
-		svr.config.Capacity[types.NamespaceMNT],
-		svr.config.Refs,
+		svr.capacity[types.NamespaceMNT],
+		svr.refs,
 		p,
 		svr.supplier,
 	); err != nil {
@@ -132,7 +142,7 @@ func (svr *namespaceService) handleGetNamespace(conn net.Conn) error {
 		rsp.Fd = -1
 		rsp.Info = "No such namespace"
 	} else {
-		fd, info, err := mgr.Get(r.Arg)
+		fd, info, err := mgr.Get(r.Ref)
 		if err != nil {
 			rsp.Fd = -1
 			rsp.Info = err.Error()
@@ -191,6 +201,5 @@ func defaultConfig() serviceConfig {
 			types.NamespaceUTS: 5,
 			types.NamespaceMNT: 5,
 		},
-		Refs: []string{},
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/YLonely/ccfs/cache"
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/checkpoint"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/pkg/errors"
@@ -86,8 +87,8 @@ type provider struct {
 	config   Config
 }
 
-func (p *provider) Prepare(checkpointName string, target string) (err error) {
-	checkpointDir := path.Join(p.mountpoint, checkpointName)
+func (p *provider) Prepare(ref types.Reference, target string) (err error) {
+	checkpointDir := path.Join(p.mountpoint, ref.Name)
 	if _, err = os.Stat(checkpointDir); err == nil {
 		return nil
 	}
@@ -138,21 +139,21 @@ func (p *provider) Remove(target string) error {
 	return unix.Unmount(target, unix.MNT_DETACH)
 }
 
-func (p *provider) Add(checkpointName string) {
+func (p *provider) Add(ref types.Reference) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.refs[checkpointName]++
+	p.refs[ref.Name]++
 }
 
-func (p *provider) Release(checkpointName string) {
+func (p *provider) Release(ref types.Reference) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, exists := p.refs[checkpointName]; !exists {
+	if _, exists := p.refs[ref.Name]; !exists {
 		return
 	}
-	p.refs[checkpointName]--
-	if p.refs[checkpointName] < 0 {
-		p.refs[checkpointName] = 0
+	p.refs[ref.Name]--
+	if p.refs[ref.Name] < 0 {
+		p.refs[ref.Name] = 0
 	}
 }
 

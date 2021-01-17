@@ -1,13 +1,15 @@
 package checkpoint
 
+import "github.com/YLonely/cer-manager/api/types"
+
 // Provider provides container checkpoints to other components
 type Provider interface {
-	Prepare(checkpointName string, target string) error
+	Prepare(ref types.Reference, target string) error
 	Remove(target string) error
 }
 
-// ReferenceManager manages the references on checkpoint
-type ReferenceManager interface {
-	Add(checkpointName string)
-	Release(checkpointName string)
+// SharedManager manages the shared use on a Reference
+type SharedManager interface {
+	Add(ref types.Reference)
+	Release(ref types.Reference)
 }

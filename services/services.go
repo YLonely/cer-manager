@@ -10,7 +10,3 @@ type Service interface {
 	Handle(context.Context, net.Conn)
 	Stop() error
 }
-
-type CheckpointSupplier interface {
-	Get(ref string) (string, error)
-}

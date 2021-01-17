@@ -44,7 +44,7 @@ type GenericManager struct {
 
 var _ namespace.Manager = &GenericManager{}
 
-func (mgr *GenericManager) Get(interface{}) (fd int, info interface{}, err error) {
+func (mgr *GenericManager) Get(types.Reference) (fd int, info interface{}, err error) {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	n := len(mgr.unusedNS)
@@ -86,7 +86,7 @@ func (mgr *GenericManager) CleanUp() error {
 	}
 	for _, f := range files {
 		if err := f.Close(); err != nil {
-			failed = append(failed, fmt.Sprintf("%s %d", err.Error(), int(f.Fd())))
+			failed = append(failed, fmt.Sprintf("%s %d", err, int(f.Fd())))
 		}
 	}
 	if len(failed) != 0 {
