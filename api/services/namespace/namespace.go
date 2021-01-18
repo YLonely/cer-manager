@@ -8,8 +8,9 @@ const (
 )
 
 type GetNamespaceRequest struct {
-	T   types.NamespaceType `json:"namespace_type"`
-	Ref types.Reference     `json:"arg,omitempty"`
+	T         types.NamespaceType `json:"namespace_type"`
+	Ref       types.Reference     `json:"ref"`
+	ExtraRefs []types.Reference   `json:"extra_refs,omitempty"`
 }
 
 type PutNamespaceRequest struct {

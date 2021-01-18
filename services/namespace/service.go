@@ -29,7 +29,7 @@ type serviceConfig struct {
 	Capacity map[types.NamespaceType]int `json:"capacity,omitempty"`
 	Refs     []struct {
 		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
+		Namespace string `json:"namespace,omitempty"`
 	} `json:"checkpoint_refs"`
 }
 

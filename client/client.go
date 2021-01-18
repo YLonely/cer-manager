@@ -8,7 +8,7 @@ const (
 	defaultSocketPath = "/var/lib/cermanager/daemon.socket"
 )
 
-func NewCERManagerClient(config Config) (*Client, error) {
+func New(config Config) (*Client, error) {
 	var c net.Conn
 	var err error
 	if c, err = net.Dial("unix", config.SocketPath); err != nil {
@@ -19,8 +19,8 @@ func NewCERManagerClient(config Config) (*Client, error) {
 	}, nil
 }
 
-func NewDefaultClient() (*Client, error) {
-	return NewCERManagerClient(Config{
+func Default() (*Client, error) {
+	return New(Config{
 		SocketPath: defaultSocketPath,
 	})
 }

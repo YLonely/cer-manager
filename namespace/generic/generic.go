@@ -44,7 +44,7 @@ type GenericManager struct {
 
 var _ namespace.Manager = &GenericManager{}
 
-func (mgr *GenericManager) Get(types.Reference) (fd int, info interface{}, err error) {
+func (mgr *GenericManager) Get(types.Reference, ...types.Reference) (fd int, info interface{}, err error) {
 	mgr.m.Lock()
 	defer mgr.m.Unlock()
 	n := len(mgr.unusedNS)

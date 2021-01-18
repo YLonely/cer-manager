@@ -106,7 +106,10 @@ type bundleInfo struct {
 	gmgr   *generic.GenericManager
 }
 
-func (mgr *mountManager) Get(ref types.Reference) (int, interface{}, error) {
+func (mgr *mountManager) Get(ref types.Reference, extraRefs ...types.Reference) (int, interface{}, error) {
+	if len(extraRefs) > 0 {
+		return -1, nil, errors.New("multiple references is not supported")
+	}
 	if gmgr, exists := mgr.mgrs[ref.Digest()]; exists {
 		fd, _, err := gmgr.Get(types.Reference{})
 		if err != nil {

@@ -87,8 +87,12 @@ type manager struct {
 	usedID map[int]*generic.GenericManager
 }
 
-func (m *manager) Get(ref types.Reference) (fd int, info interface{}, err error) {
-	mgr, exists := m.managers[ref.Digest()]
+func (m *manager) Get(ref types.Reference, extraRefs ...types.Reference) (fd int, info interface{}, err error) {
+	target, err := m.targetRef(ref, extraRefs...)
+	if err != nil {
+		return -1, nil, err
+	}
+	mgr, exists := m.managers[target.Digest()]
 	if !exists {
 		// we try to get a normal type of ipc for ref
 		mgr, exists = m.managers[ipcTypeNormal]
@@ -99,13 +103,13 @@ func (m *manager) Get(ref types.Reference) (fd int, info interface{}, err error)
 				return
 			}
 		} else {
-			err = errors.Errorf("ipc namespace of %s does not exist", ref)
+			err = errors.Errorf("ipc namespace of %s does not exist", target)
 			return
 		}
 	} else {
 		fd, info, err = mgr.Get(types.Reference{})
 		if err != nil {
-			err = errors.Wrap(err, "failed to get namespace for "+ref.String())
+			err = errors.Wrap(err, "failed to get namespace for "+target.String())
 			return
 		}
 	}
@@ -116,6 +120,8 @@ func (m *manager) Get(ref types.Reference) (fd int, info interface{}, err error)
 }
 
 func (m *manager) Put(fd int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	mgr, exists := m.usedID[fd]
 	if !exists {
 		return errors.New("invalid id")
@@ -123,8 +129,6 @@ func (m *manager) Put(fd int) error {
 	if err := mgr.Put(fd); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.usedID, fd)
 	return nil
 }
@@ -137,13 +141,34 @@ func (m *manager) CleanUp() error {
 	var failed []string
 	for ref, mgr := range m.managers {
 		if err := mgr.CleanUp(); err != nil {
-			failed = append(failed, fmt.Sprintf("clean up manager for %s, error %s", ref, err))
+			failed = append(failed, fmt.Sprintf("encountered error %s when cleaning up manager of %s", err, ref))
 		}
 	}
 	if len(failed) != 0 {
 		return errors.New(strings.Join(failed, ";"))
 	}
 	return nil
+}
+
+func (m *manager) targetRef(ref types.Reference, extraRefs ...types.Reference) (types.Reference, error) {
+	if len(extraRefs) == 0 {
+		return ref, nil
+	}
+	refs := append(extraRefs, ref)
+	var target *types.Reference
+	for _, ref := range refs {
+		if _, exists := m.managers[ref.Digest()]; exists {
+			if target == nil {
+				target = &ref
+			} else {
+				return types.Reference{}, errors.Errorf("namespace collision among references %v", refs)
+			}
+		}
+	}
+	if target == nil {
+		target = &ref
+	}
+	return *target, nil
 }
 
 func makeCreateNewIPCNamespace(checkpointPath string) func(t types.NamespaceType) (*os.File, error) {
