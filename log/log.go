@@ -41,37 +41,19 @@ func (f formatter) Format(e *logrus.Entry) ([]byte, error) {
 	return f.Formatter.Format(e)
 }
 
-type logItem struct {
-	stype  cerm.ServiceType
-	method string
-}
-
-var loggers = map[logItem]*logrus.Entry{}
-
 func Logger(t cerm.ServiceType, method string) *logrus.Entry {
-	var ret *logrus.Entry
 	var serviceStr string
 	var exists bool
 	if method == "" {
 		method = "Unknown"
 	}
-	item := logItem{
-		stype:  t,
-		method: method,
-	}
 	if serviceStr, exists = cerm.Type2Services[t]; !exists {
 		serviceStr = "unknown"
 	}
-	if logger, exists := loggers[item]; !exists {
-		loggers[item] = logrus.WithFields(logrus.Fields{
-			"service": serviceStr,
-			"method":  method,
-		})
-		ret = loggers[item]
-	} else {
-		ret = logger
-	}
-	return ret
+	return logrus.WithFields(logrus.Fields{
+		"service": serviceStr,
+		"method":  method,
+	})
 }
 
 func Raw() *logrus.Logger {
