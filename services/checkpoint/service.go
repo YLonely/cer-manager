@@ -51,10 +51,10 @@ func New(root string) (services.Service, error) {
 }
 
 type service struct {
-	root         string
-	router       services.Router
-	provider     cp.Provider
-	referenceMgr cp.SharedManager
+	root      string
+	router    services.Router
+	provider  cp.Provider
+	sharedMgr cp.SharedManager
 	//targets records all the target path where the checkpoint files located
 	targets      map[string]struct{}
 	m            sync.Mutex
@@ -137,8 +137,8 @@ func (s *service) handleGetCheckpoint(c net.Conn) error {
 	if err != nil {
 		log.Logger(cerm.CheckpointService, "GetCheckpoint").Error(err)
 	}
-	if s.referenceMgr != nil {
-		s.referenceMgr.Add(r.Ref)
+	if s.sharedMgr != nil {
+		s.sharedMgr.Add(r.Ref)
 	}
 	if err := utils.SendObject(c, resp); err != nil {
 		return err
@@ -154,8 +154,8 @@ func (s *service) handlePutCheckpoint(c net.Conn) error {
 	}
 	log.WithInterface(log.Logger(cerm.CheckpointService, "PutCheckpoint"), "request", r).Debug()
 	var resp api.PutCheckpointResponse
-	if s.referenceMgr != nil {
-		s.referenceMgr.Release(r.Ref)
+	if s.sharedMgr != nil {
+		s.sharedMgr.Release(r.Ref)
 	}
 	if err := utils.SendObject(c, resp); err != nil {
 		return err
@@ -176,7 +176,7 @@ func (s *service) initProvider(c config) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to create ccfs provider")
 		}
-		s.referenceMgr = s.provider.(cp.SharedManager)
+		s.sharedMgr = s.provider.(cp.SharedManager)
 		log.WithInterface(log.Logger(cerm.CheckpointService, "initProvider"), "config", cacheConfig).Debug("use the checkpoint provider whose backend is ccfs")
 	case "containerd":
 		var cacheConfig containerd.Config
