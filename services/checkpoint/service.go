@@ -153,7 +153,7 @@ func (s *service) handlePutCheckpoint(c net.Conn) error {
 		return err
 	}
 	log.WithInterface(log.Logger(cerm.CheckpointService, "PutCheckpoint"), "request", r).Debug()
-	var resp api.GetCheckpointResponse
+	var resp api.PutCheckpointResponse
 	if s.referenceMgr != nil {
 		s.referenceMgr.Release(r.Ref)
 	}
