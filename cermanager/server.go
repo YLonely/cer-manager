@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	cerm "github.com/YLonely/cer-manager"
+	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/services/checkpoint"
@@ -44,7 +45,7 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create checkpoint service")
 	}
-	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(checkpoint.Supplier))
+	namespaceSvr, err := namespace.New(DefaultRootPath, checkpointSvr.(types.Supplier))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create namespace service")
 	}

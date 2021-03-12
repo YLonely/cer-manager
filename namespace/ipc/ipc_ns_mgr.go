@@ -16,7 +16,6 @@ import (
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/namespace"
 	"github.com/YLonely/cer-manager/namespace/generic"
-	"github.com/YLonely/cer-manager/services/checkpoint"
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/YLonely/criuimages"
 	criutype "github.com/YLonely/criuimages/types"
@@ -31,7 +30,7 @@ func init() {
 }
 
 // NewManager returns a new ipc namespace manager
-func NewManager(root string, capacity int, refs []types.Reference, supplier checkpoint.Supplier) (namespace.Manager, error) {
+func NewManager(root string, capacity int, refs []types.Reference, supplier types.Supplier) (namespace.Manager, error) {
 	if capacity < 0 || len(refs) == 0 {
 		return nil, errors.New("invalid initial args for ipc manager")
 	}
@@ -81,7 +80,7 @@ const (
 
 type manager struct {
 	managers map[string]*generic.GenericManager
-	supplier checkpoint.Supplier
+	supplier types.Supplier
 	mu       sync.Mutex
 	// usedID maps id to the manager that generates it
 	usedID map[int]*generic.GenericManager
@@ -475,7 +474,7 @@ func restoreFromPagemaps(shmid int, shm *ipcgo.SharedMemory) error {
 	return nil
 }
 
-func devide(refs []types.Reference, defaultVars *criutype.IpcVarEntry, supplier checkpoint.Supplier) (normals []types.Reference, specials []types.Reference, err error) {
+func devide(refs []types.Reference, defaultVars *criutype.IpcVarEntry, supplier types.Supplier) (normals []types.Reference, specials []types.Reference, err error) {
 	var cp string
 	var inDefault bool
 	for _, ref := range refs {

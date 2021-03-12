@@ -22,7 +22,6 @@ import (
 	"github.com/YLonely/cer-manager/namespace"
 	"github.com/YLonely/cer-manager/namespace/generic"
 	"github.com/YLonely/cer-manager/rootfs"
-	"github.com/YLonely/cer-manager/services/checkpoint"
 	"github.com/YLonely/criuimages"
 
 	criutype "github.com/YLonely/criuimages/types"
@@ -35,7 +34,7 @@ func init() {
 	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyReset, types.NamespaceMNT, resetBundle)
 }
 
-func NewManager(root string, capacity int, refs []types.Reference, provider rootfs.Provider, supplier checkpoint.Supplier) (namespace.Manager, error) {
+func NewManager(root string, capacity int, refs []types.Reference, provider rootfs.Provider, supplier types.Supplier) (namespace.Manager, error) {
 	if capacity < 0 || len(refs) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
@@ -97,7 +96,7 @@ type mountManager struct {
 	// usedBundles maps fd to it's basic info
 	usedBundles map[int]bundleInfo
 	m           sync.Mutex
-	supplier    checkpoint.Supplier
+	supplier    types.Supplier
 }
 
 type bundleInfo struct {

@@ -13,7 +13,6 @@ import (
 	"github.com/YLonely/cer-manager/namespace/ipc"
 	"github.com/YLonely/cer-manager/namespace/mnt"
 	"github.com/YLonely/cer-manager/namespace/uts"
-	"github.com/YLonely/cer-manager/services/checkpoint"
 
 	nsapi "github.com/YLonely/cer-manager/api/services/namespace"
 
@@ -33,7 +32,7 @@ type serviceConfig struct {
 	} `json:"checkpoint_refs"`
 }
 
-func New(root string, supplier checkpoint.Supplier) (services.Service, error) {
+func New(root string, supplier types.Supplier) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
 	config := defaultConfig()
@@ -73,7 +72,7 @@ type namespaceService struct {
 	managers map[types.NamespaceType]ns.Manager
 	root     string
 	router   services.Router
-	supplier checkpoint.Supplier
+	supplier types.Supplier
 }
 
 var _ services.Service = &namespaceService{}
