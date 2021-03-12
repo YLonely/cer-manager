@@ -30,6 +30,7 @@ var startCommand = cli.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		s, err := cermanager.NewServer()
 		if err != nil {
+			cancel()
 			return err
 		}
 		errorC := s.Start(ctx)
