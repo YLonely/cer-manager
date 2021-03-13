@@ -34,8 +34,8 @@ func init() {
 	namespace.PutNamespaceFunction(namespace.NamespaceFunctionKeyReset, types.NamespaceMNT, resetBundle)
 }
 
-func NewManager(root string, capacity int, refs []types.Reference, provider rootfs.Provider, supplier types.Supplier) (namespace.Manager, error) {
-	if capacity < 0 || len(refs) == 0 {
+func NewManager(root string, capacities []int, refs []types.Reference, provider rootfs.Provider, supplier types.Supplier) (namespace.Manager, error) {
+	if len(capacities) == 0 || len(refs) == 0 {
 		return nil, errors.New("invalid init arguments for mnt namespace")
 	}
 	var mounts []mount.Mount
@@ -52,17 +52,17 @@ func NewManager(root string, capacity int, refs []types.Reference, provider root
 		provider:    provider,
 		supplier:    supplier,
 	}
-	for _, ref := range refs {
-		mounts, err = provider.Prepare(ref, ref.Digest()+"-key")
+	for i := 0; i < len(refs); i++ {
+		mounts, err = provider.Prepare(refs[i], refs[i].Digest()+"-key")
 		if err != nil {
-			return nil, errors.Wrap(err, "error prepare rootfs for "+ref.String())
+			return nil, errors.Wrap(err, "error prepare rootfs for "+refs[i].String())
 		}
 		if len(mounts) == 0 {
 			return nil, errors.New("empty mount stack")
 		}
-		rootfsDir := path.Join(rootfsParentDir, ref.Digest())
+		rootfsDir := path.Join(rootfsParentDir, refs[i].Digest())
 		if err = os.MkdirAll(rootfsDir, 0755); err != nil {
-			return nil, errors.Wrap(err, "error create dir for "+ref.String())
+			return nil, errors.Wrap(err, "error create dir for "+refs[i].String())
 		}
 		if isOverlayMounts(mounts) {
 			makeOverlaysReadOnly(mounts)
@@ -72,14 +72,14 @@ func NewManager(root string, capacity int, refs []types.Reference, provider root
 		if err = mount.MountAll(mounts, rootfsDir); err != nil {
 			return nil, errors.Wrap(err, "failed to mount")
 		}
-		checkpoint, err := supplier.Get(ref)
+		checkpoint, err := supplier.Get(refs[i])
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get checkpoint for %s", ref)
+			return nil, errors.Wrapf(err, "failed to get checkpoint for %s", refs[i])
 		}
-		if mgr, err := generic.NewManager(capacity, types.NamespaceMNT, nsMgr.makeCreateNewNamespace(rootfsDir, checkpoint)); err != nil {
+		if mgr, err := generic.NewManager(capacities[i], types.NamespaceMNT, nsMgr.makeCreateNewNamespace(rootfsDir, checkpoint)); err != nil {
 			return nil, err
 		} else {
-			nsMgr.mgrs[ref.Digest()] = mgr
+			nsMgr.mgrs[refs[i].Digest()] = mgr
 		}
 	}
 	return nsMgr, nil

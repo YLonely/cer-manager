@@ -30,13 +30,17 @@ func init() {
 }
 
 // NewManager returns a new ipc namespace manager
-func NewManager(root string, capacity int, refs []types.Reference, supplier types.Supplier) (namespace.Manager, error) {
-	if capacity < 0 || len(refs) == 0 {
+func NewManager(root string, capacities []int, refs []types.Reference, supplier types.Supplier) (namespace.Manager, error) {
+	if len(capacities) < 0 || len(refs) == 0 {
 		return nil, errors.New("invalid initial args for ipc manager")
 	}
 	defaultVars, err := getDefaultNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to collect varaibles from new ipc namespace")
+	}
+	capacityMap := map[string]int{}
+	for i := 0; i < len(refs); i++ {
+		capacityMap[refs[i].Digest()] = capacities[i]
 	}
 	normals, specials, err := devide(refs, defaultVars, supplier)
 	if err != nil {
@@ -49,7 +53,11 @@ func NewManager(root string, capacity int, refs []types.Reference, supplier type
 		usedID:   map[int]*generic.GenericManager{},
 	}
 	if len(normals) != 0 {
-		mgr, err := generic.NewManager(capacity*len(normals), types.NamespaceIPC, nil)
+		total := 0
+		for _, ref := range normals {
+			total += capacityMap[ref.Digest()]
+		}
+		mgr, err := generic.NewManager(total, types.NamespaceIPC, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +69,7 @@ func NewManager(root string, capacity int, refs []types.Reference, supplier type
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to get checkpoint path for "+ref.String())
 			}
-			mgr, err := generic.NewManager(capacity, types.NamespaceIPC, makeCreateNewIPCNamespace(cp))
+			mgr, err := generic.NewManager(capacityMap[ref.Digest()], types.NamespaceIPC, makeCreateNewIPCNamespace(cp))
 			if err != nil {
 				return nil, err
 			}

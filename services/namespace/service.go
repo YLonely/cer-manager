@@ -25,54 +25,60 @@ import (
 )
 
 type serviceConfig struct {
-	Capacity map[types.NamespaceType]int `json:"capacity,omitempty"`
-	Refs     []struct {
+	ContainerdCheckpoints []struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace,omitempty"`
-	} `json:"checkpoint_refs"`
+		Capacity  int    `json:"capacity,omitempty"`
+	} `json:"containerd_checkpoints"`
+	DefaultCapacity int `json:"default_capacity"`
 }
 
 func New(root string, supplier types.Supplier) (services.Service, error) {
 	const configName = "namespace_service.json"
 	configPath := path.Join(root, configName)
-	config := defaultConfig()
+	config := serviceConfig{}
 	if _, err := os.Stat(configPath); err == nil {
 		content, err := ioutil.ReadFile(configPath)
 		if err != nil {
 			return nil, err
 		}
-		c := serviceConfig{}
-		if err = json.Unmarshal(content, &c); err != nil {
+		if err = json.Unmarshal(content, &config); err != nil {
 			return nil, err
 		}
-		if err = mergeConfig(&config, &c); err != nil {
-			return nil, err
-		}
-	} else if !os.IsNotExist(err) {
+	} else {
 		return nil, err
 	}
+	if config.DefaultCapacity <= 0 {
+		return nil, errors.New("non-positive default capacity is invalid")
+	}
 	log.WithInterface(log.Logger(cerm.NamespaceService, "New"), "config", config).Debug("create service with config")
-	refs := make([]types.Reference, 0, len(config.Refs))
-	for _, ref := range config.Refs {
-		refs = append(refs, types.NewContainerdReference(ref.Name, ref.Namespace))
+	refs := make([]types.Reference, 0, len(config.ContainerdCheckpoints))
+	capacities := make([]int, 0, len(config.ContainerdCheckpoints))
+	for _, cp := range config.ContainerdCheckpoints {
+		ref := types.NewContainerdReference(cp.Name, cp.Namespace)
+		refs = append(refs, ref)
+		if cp.Capacity <= 0 {
+			cp.Capacity = config.DefaultCapacity
+		}
+		capacities = append(capacities, cp.Capacity)
 	}
 	return &namespaceService{
-		capacity: config.Capacity,
-		refs:     refs,
-		managers: map[types.NamespaceType]ns.Manager{},
-		root:     root,
-		router:   services.NewRouter(),
-		supplier: supplier,
+		capacities: capacities,
+		refs:       refs,
+		managers:   map[types.NamespaceType]ns.Manager{},
+		root:       root,
+		router:     services.NewRouter(),
+		supplier:   supplier,
 	}, nil
 }
 
 type namespaceService struct {
-	capacity map[types.NamespaceType]int
-	refs     []types.Reference
-	managers map[types.NamespaceType]ns.Manager
-	root     string
-	router   services.Router
-	supplier types.Supplier
+	capacities []int
+	refs       []types.Reference
+	managers   map[types.NamespaceType]ns.Manager
+	root       string
+	router     services.Router
+	supplier   types.Supplier
 }
 
 var _ services.Service = &namespaceService{}
@@ -81,14 +87,14 @@ func (svr *namespaceService) Init() error {
 	var err error
 	if svr.managers[types.NamespaceUTS], err = uts.NewManager(
 		svr.root,
-		svr.capacity[types.NamespaceUTS],
+		svr.capacities,
 		svr.refs,
 	); err != nil {
 		return errors.Wrap(err, "failed to create uts namespace manager")
 	}
 	if svr.managers[types.NamespaceIPC], err = ipc.NewManager(
 		svr.root,
-		svr.capacity[types.NamespaceIPC],
+		svr.capacities,
 		svr.refs,
 		svr.supplier,
 	); err != nil {
@@ -100,7 +106,7 @@ func (svr *namespaceService) Init() error {
 	}
 	if svr.managers[types.NamespaceMNT], err = mnt.NewManager(
 		svr.root,
-		svr.capacity[types.NamespaceMNT],
+		svr.capacities,
 		svr.refs,
 		p,
 		svr.supplier,
@@ -178,27 +184,4 @@ func (svr *namespaceService) handlePutNamespace(conn net.Conn) error {
 	}
 	log.WithInterface(log.Logger(cerm.NamespaceService, "handlePutNamespace"), "response", rsp).Debug()
 	return nil
-}
-
-func mergeConfig(to, from *serviceConfig) error {
-	for _, t := range []types.NamespaceType{types.NamespaceIPC, types.NamespaceMNT, types.NamespaceUTS} {
-		if v, exists := from.Capacity[t]; exists {
-			if v < 0 {
-				return errors.New("negative namespace capacity")
-			}
-			to.Capacity[t] = v
-		}
-	}
-	to.Refs = append(to.Refs, from.Refs...)
-	return nil
-}
-
-func defaultConfig() serviceConfig {
-	return serviceConfig{
-		Capacity: map[types.NamespaceType]int{
-			types.NamespaceIPC: 5,
-			types.NamespaceUTS: 5,
-			types.NamespaceMNT: 5,
-		},
-	}
 }
