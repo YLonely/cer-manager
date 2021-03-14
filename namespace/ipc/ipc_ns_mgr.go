@@ -15,7 +15,6 @@ import (
 	"github.com/YLonely/cer-manager/api/types"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/namespace"
-	"github.com/YLonely/cer-manager/namespace/generic"
 	"github.com/YLonely/cer-manager/utils"
 	"github.com/YLonely/criuimages"
 	criutype "github.com/YLonely/criuimages/types"
@@ -38,42 +37,21 @@ func NewManager(root string, capacities []int, refs []types.Reference, supplier 
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to collect varaibles from new ipc namespace")
 	}
-	capacityMap := map[string]int{}
-	for i := 0; i < len(refs); i++ {
-		capacityMap[refs[i].Digest()] = capacities[i]
-	}
-	normals, specials, err := devide(refs, defaultVars, supplier)
-	if err != nil {
-		return nil, err
-	}
-	log.Raw().Debugf("images with normal ipc %v, images with special ipc %v", normals, specials)
 	ret := &manager{
 		supplier: supplier,
-		managers: map[string]*generic.GenericManager{},
-		usedID:   map[int]*generic.GenericManager{},
+		sets: map[string]struct {
+			ipcContentNormal bool
+			set              *namespace.Set
+		}{},
+		usedNamespace: map[int]struct {
+			ref types.Reference
+			f   *os.File
+		}{},
+		ipcDefaultVars: defaultVars,
 	}
-	if len(normals) != 0 {
-		total := 0
-		for _, ref := range normals {
-			total += capacityMap[ref.Digest()]
-		}
-		mgr, err := generic.NewManager(total, types.NamespaceIPC, nil)
-		if err != nil {
+	for i, ref := range refs {
+		if err := ret.initSet(ref, capacities[i]); err != nil {
 			return nil, err
-		}
-		ret.managers[ipcTypeNormal] = mgr
-	}
-	if len(specials) != 0 {
-		for _, ref := range specials {
-			cp, err := supplier.Get(ref)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to get checkpoint path for "+ref.String())
-			}
-			mgr, err := generic.NewManager(capacityMap[ref.Digest()], types.NamespaceIPC, makeCreateNewIPCNamespace(cp))
-			if err != nil {
-				return nil, err
-			}
-			ret.managers[ref.Digest()] = mgr
 		}
 	}
 	return ret, nil
@@ -81,78 +59,126 @@ func NewManager(root string, capacities []int, refs []types.Reference, supplier 
 
 const (
 	functionKeyCollect namespace.NamespaceFunctionKey = "collect"
-	ipcTypeNormal                                     = "normal"
 	pageSize                                          = 1 << 12
 	maxMsgSize                                        = 8192
 )
 
 type manager struct {
-	managers map[string]*generic.GenericManager
+	sets map[string]struct {
+		ipcContentNormal bool
+		set              *namespace.Set
+	}
 	supplier types.Supplier
 	mu       sync.Mutex
-	// usedID maps id to the manager that generates it
-	usedID map[int]*generic.GenericManager
+	// usedNamespace maps a fd to the file it belongs
+	usedNamespace map[int]struct {
+		ref types.Reference
+		f   *os.File
+	}
+	ipcDefaultVars *criutype.IpcVarEntry
 }
 
 func (m *manager) Get(ref types.Reference, extraRefs ...types.Reference) (fd int, info interface{}, err error) {
-	target, err := m.targetRef(ref, extraRefs...)
-	if err != nil {
-		return -1, nil, err
-	}
-	mgr, exists := m.managers[target.Digest()]
-	if !exists {
-		// we try to get a normal type of ipc for ref
-		mgr, exists = m.managers[ipcTypeNormal]
-		if exists {
-			fd, info, err = mgr.Get(types.Reference{})
-			if err != nil {
-				err = errors.Wrap(err, "failed to get a normal ipc")
-				return
-			}
-		} else {
-			err = errors.Errorf("ipc namespace of %s does not exist", target)
-			return
-		}
-	} else {
-		fd, info, err = mgr.Get(types.Reference{})
-		if err != nil {
-			err = errors.Wrap(err, "failed to get namespace for "+target.String())
-			return
-		}
-	}
+	var target types.Reference
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.usedID[fd] = mgr
+	target, err = m.targetRef(ref, extraRefs...)
+	if err != nil {
+		return
+	}
+	set, exists := m.sets[target.Digest()]
+	if !exists {
+		err = errors.Errorf("IPC namespace of %s does not exist", target)
+		return
+	}
+	f := set.set.Get()
+	if f == nil {
+		err = errors.Errorf("IPC namespace of %s is used up")
+		return
+	}
+	fd = int(f.Fd())
+	m.usedNamespace[fd] = struct {
+		ref types.Reference
+		f   *os.File
+	}{
+		ref: target,
+		f:   f,
+	}
 	return
 }
 
 func (m *manager) Put(fd int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	mgr, exists := m.usedID[fd]
+	item, exists := m.usedNamespace[fd]
 	if !exists {
-		return errors.New("invalid id")
+		return errors.Errorf("invalid fd %d", fd)
 	}
-	if err := mgr.Put(fd); err != nil {
-		return err
-	}
-	delete(m.usedID, fd)
+	go func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		defer item.f.Close()
+		set, exists := m.sets[item.ref.Digest()]
+		if !exists {
+			panic(errors.Errorf("IPC namesapce set of %s does not exist", item.ref))
+		}
+		if err := set.set.CreateOne(); err != nil {
+			log.Raw().WithError(err).Errorf("failed to create a new IPC namespace for %s", item.ref)
+		}
+	}()
+	delete(m.usedNamespace, fd)
 	return nil
 }
 
-func (m *manager) Update(interface{}) error {
-	return nil
+func (m *manager) Update(ref types.Reference, capacity int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	set, exists := m.sets[ref.Digest()]
+	if !exists {
+		if err := m.initSet(ref, capacity); err != nil {
+			return err
+		}
+	}
+	return set.set.Update(capacity)
 }
 
 func (m *manager) CleanUp() error {
-	var failed []string
-	for ref, mgr := range m.managers {
-		if err := mgr.CleanUp(); err != nil {
-			failed = append(failed, fmt.Sprintf("encountered error %s when cleaning up manager of %s", err, ref))
+	var last error
+	for _, item := range m.usedNamespace {
+		item.f.Close()
+		log.Raw().Warnf("IPC namespace %d of %s is being used", item.f.Fd(), item.ref)
+	}
+	for _, set := range m.sets {
+		if err := set.set.CleanUp(); err != nil {
+			last = err
+			log.Raw().Error(err)
 		}
 	}
-	if len(failed) != 0 {
-		return errors.New(strings.Join(failed, ";"))
+	return last
+}
+
+func (m *manager) initSet(ref types.Reference, capacity int) error {
+	cp, err := m.supplier.Get(ref)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get checkpoint path for %s", ref)
+	}
+	set, err := namespace.NewSet(capacity, makeIPCNamespaceCreator(cp), func(f *os.File) error { return nil })
+	if err != nil {
+		return err
+	}
+	contentNormal, err := inDefaultNamespace(m.ipcDefaultVars, cp)
+	if err != nil {
+		return errors.Wrapf(err, "failed to judge if the IPC namespace of %s is normal", ref)
+	}
+	if !contentNormal {
+		log.Raw().Infof("IPC namespace of %s contains extra data", ref)
+	}
+	m.sets[ref.Digest()] = struct {
+		ipcContentNormal bool
+		set              *namespace.Set
+	}{
+		ipcContentNormal: contentNormal,
+		set:              set,
 	}
 	return nil
 }
@@ -164,11 +190,13 @@ func (m *manager) targetRef(ref types.Reference, extraRefs ...types.Reference) (
 	refs := append(extraRefs, ref)
 	var target *types.Reference
 	for _, ref := range refs {
-		if _, exists := m.managers[ref.Digest()]; exists {
-			if target == nil {
-				target = &ref
-			} else {
-				return types.Reference{}, errors.Errorf("namespace collision among references %v", refs)
+		if set, exists := m.sets[ref.Digest()]; exists {
+			if !set.ipcContentNormal {
+				if target == nil {
+					target = &ref
+				} else {
+					return types.Reference{}, errors.Errorf("namespace collision among references %v", refs)
+				}
 			}
 		}
 	}
@@ -178,8 +206,8 @@ func (m *manager) targetRef(ref types.Reference, extraRefs ...types.Reference) (
 	return *target, nil
 }
 
-func makeCreateNewIPCNamespace(checkpointPath string) func(t types.NamespaceType) (*os.File, error) {
-	return func(types.NamespaceType) (f *os.File, err error) {
+func makeIPCNamespaceCreator(checkpointPath string) func() (*os.File, error) {
+	return func() (f *os.File, err error) {
 		var h *namespace.NamespaceHelper
 		h, err = namespace.NewNamespaceExecCreateHelper(
 			namespace.NamespaceFunctionKeyCreate,
@@ -199,7 +227,7 @@ func makeCreateNewIPCNamespace(checkpointPath string) func(t types.NamespaceType
 		if err != nil {
 			return
 		}
-		return f, h.Release()
+		return f, nil
 	}
 }
 
@@ -480,28 +508,6 @@ func restoreFromPagemaps(shmid int, shm *ipcgo.SharedMemory) error {
 		}
 	}
 	return nil
-}
-
-func devide(refs []types.Reference, defaultVars *criutype.IpcVarEntry, supplier types.Supplier) (normals []types.Reference, specials []types.Reference, err error) {
-	var cp string
-	var inDefault bool
-	for _, ref := range refs {
-		cp, err = supplier.Get(ref)
-		if err != nil {
-			err = errors.Wrap(err, "failed to get checkpoint path for "+ref.String())
-			return
-		}
-		inDefault, err = inDefaultNamespace(defaultVars, cp)
-		if err != nil {
-			return
-		}
-		if inDefault {
-			normals = append(normals, ref)
-		} else {
-			specials = append(specials, ref)
-		}
-	}
-	return
 }
 
 func inDefaultNamespace(vars *criutype.IpcVarEntry, cp string) (bool, error) {

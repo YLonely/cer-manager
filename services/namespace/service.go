@@ -86,7 +86,6 @@ var _ services.Service = &namespaceService{}
 func (svr *namespaceService) Init() error {
 	var err error
 	if svr.managers[types.NamespaceUTS], err = uts.NewManager(
-		svr.root,
 		svr.capacities,
 		svr.refs,
 	); err != nil {
