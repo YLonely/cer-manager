@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	gohttp "net/http"
 	"os"
@@ -14,16 +15,6 @@ import (
 	"github.com/YLonely/cer-manager/client"
 	"github.com/YLonely/cer-manager/log"
 )
-
-type updateNamespaceRequest struct {
-	CheckpointName      string `json:"checkpoint_name"`
-	CheckpointNamespace string `json:"checkpoint_namespace"`
-	Capacity            int    `json:"capacity"`
-}
-
-type updateNamespaceResponse struct {
-	Message string `json:"message"`
-}
 
 func NewServer(root string, port int) (*Server, error) {
 	rootPath := path.Join(root, "http")
@@ -38,8 +29,14 @@ func NewServer(root string, port int) (*Server, error) {
 		s:    s,
 	}
 	http.HandleFunc("/namespace/update", ret.updateNamespace)
+	http.HandleFunc("/image/upload", ret.uploadImage)
 	return ret, nil
 }
+
+const (
+	// 5GB
+	defaultMaximumFileSize = 5 << 30
+)
 
 type Server struct {
 	root string
@@ -91,4 +88,33 @@ func (svr *Server) updateNamespace(w gohttp.ResponseWriter, r *gohttp.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Logger(cerm.HttpService, "updateNamespace").Error(err)
 	}
+}
+
+func (svr *Server) uploadImage(w gohttp.ResponseWriter, r *gohttp.Request) {
+	r.ParseMultipartForm(defaultMaximumFileSize)
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		w.WriteHeader(gohttp.StatusInternalServerError)
+		log.Logger(cerm.HttpService, "uploadImage").WithError(err).Error("failed to parse file from the form")
+		return
+	}
+	defer file.Close()
+	log.Logger(cerm.HttpService, "uploadImage").Infof("receive a file %s with size %v", handler.Filename, handler.Size)
+	uploadPath := path.Join(svr.root, "uploads")
+	if err := os.MkdirAll(uploadPath, 0666); err != nil {
+		w.WriteHeader(gohttp.StatusInternalServerError)
+		log.Logger(cerm.HttpService, "uploadImage").WithError(err).Error("failed to create the uploads folder")
+		return
+	}
+	dest, err := os.Create(path.Join(uploadPath, handler.Filename))
+	if err != nil {
+		w.WriteHeader(gohttp.StatusInternalServerError)
+		log.Logger(cerm.HttpService, "uploadImage").WithError(err).Error("failed to create the destination file")
+		return
+	}
+	if _, err := io.Copy(dest, file); err != nil {
+		w.WriteHeader(gohttp.StatusInternalServerError)
+		log.Logger(cerm.HttpService, "uploadImage").WithError(err).Error("failed to write the destination file")
+	}
+	fmt.Fprintf(w, "uploading file successfully\n")
 }
