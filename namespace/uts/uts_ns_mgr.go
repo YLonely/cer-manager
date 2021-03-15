@@ -11,9 +11,6 @@ import (
 )
 
 func NewManager(capacities []int, refs []types.Reference) (namespace.Manager, error) {
-	if len(refs) == 0 {
-		return nil, errors.New("the length of references is 0")
-	}
 	m := &manager{
 		sets: map[string]*namespace.Set{},
 		usedNamespace: map[int]struct {

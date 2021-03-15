@@ -30,9 +30,6 @@ func init() {
 
 // NewManager returns a new ipc namespace manager
 func NewManager(root string, capacities []int, refs []types.Reference, supplier types.Supplier) (namespace.Manager, error) {
-	if len(capacities) < 0 || len(refs) == 0 {
-		return nil, errors.New("invalid initial args for ipc manager")
-	}
 	defaultVars, err := getDefaultNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to collect varaibles from new ipc namespace")

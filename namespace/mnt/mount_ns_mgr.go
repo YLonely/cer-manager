@@ -31,9 +31,6 @@ func init() {
 }
 
 func NewManager(root string, capacities []int, refs []types.Reference, provider rootfs.Provider, supplier types.Supplier) (namespace.Manager, error) {
-	if len(capacities) == 0 || len(refs) == 0 {
-		return nil, errors.New("invalid init arguments for mnt namespace")
-	}
 	var err error
 	rootfsParentDir := path.Join(root, "rootfs")
 	if err = os.MkdirAll(rootfsParentDir, 0755); err != nil {
