@@ -14,14 +14,8 @@ import (
 var startCommand = cli.Command{
 	Name:  "start",
 	Usage: "start the manager",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "debug",
-			Usage: "enable debug output in logs",
-		},
-	},
 	Action: func(c *cli.Context) error {
-		if c.Bool("debug") {
+		if c.GlobalBool("debug") {
 			log.SetLevel(log.LevelDebug)
 		} else {
 			log.SetLevel(log.LevelInfo)

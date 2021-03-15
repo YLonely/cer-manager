@@ -16,6 +16,12 @@ func main() {
 		startCommand,
 		nsexecCommand,
 	}
+	app.Flags = []cli.Flag{
+		cli.BoolFlag{
+			Name:  "debug",
+			Usage: "enable debug output in logs",
+		},
+	}
 
 	if err := app.Run(os.Args); err != nil {
 		log.Raw().Error(err)
