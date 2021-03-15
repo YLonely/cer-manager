@@ -60,3 +60,25 @@ func (client *Client) PutNamespace(t types.NamespaceType, nsID int) error {
 	}
 	return nil
 }
+
+func (client *Client) UpdateNamespace(ref types.Reference, capacity int) error {
+	req := namespace.UpdateNamespaceRequest{
+		Ref:      ref,
+		Capacity: capacity,
+	}
+	data, err := utils.Pack(cerm.NamespaceService, namespace.MethodUpdateNamespace, req)
+	if err != nil {
+		return err
+	}
+	if err = utils.Send(client.c, data); err != nil {
+		return err
+	}
+	rsp := namespace.UpdateNamespaceResponse{}
+	if err = utils.ReceiveObject(client.c, &rsp); err != nil {
+		return err
+	}
+	if rsp.Error != "" {
+		return errors.New(rsp.Error)
+	}
+	return nil
+}

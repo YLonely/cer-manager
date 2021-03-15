@@ -114,6 +114,7 @@ func (svr *namespaceService) Init() error {
 	}
 	svr.router.AddHandler(nsapi.MethodGetNamespace, svr.handleGetNamespace)
 	svr.router.AddHandler(nsapi.MethodPutNamespace, svr.handlePutNamespace)
+	svr.router.AddHandler(nsapi.MethodUpdateNamespace, svr.handleUpdateNamespace)
 	log.Logger(cerm.NamespaceService, "Init").Info("Service initialized")
 	return nil
 }
@@ -182,5 +183,25 @@ func (svr *namespaceService) handlePutNamespace(conn net.Conn) error {
 		return err
 	}
 	log.WithInterface(log.Logger(cerm.NamespaceService, "handlePutNamespace"), "response", rsp).Debug()
+	return nil
+}
+
+func (svr *namespaceService) handleUpdateNamespace(conn net.Conn) error {
+	var r nsapi.UpdateNamespaceRequest
+	if err := utils.ReceiveObject(conn, &r); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.NamespaceService, "handleUpdateNamespace"), "request", r).Debug()
+	rsp := nsapi.UpdateNamespaceResponse{}
+	for _, mgr := range svr.managers {
+		if err := mgr.Update(r.Ref, r.Capacity); err != nil {
+			rsp.Error = err.Error()
+			break
+		}
+	}
+	if err := utils.SendObject(conn, rsp); err != nil {
+		return err
+	}
+	log.WithInterface(log.Logger(cerm.NamespaceService, "handleUpdateNamespace"), "response", rsp).Debug()
 	return nil
 }
