@@ -135,6 +135,7 @@ func (m *manager) Update(ref types.Reference, capacity int) error {
 		if err := m.initSet(ref, capacity); err != nil {
 			return err
 		}
+		return nil
 	}
 	return set.set.Update(capacity)
 }
