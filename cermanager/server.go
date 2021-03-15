@@ -10,6 +10,7 @@ import (
 
 	cerm "github.com/YLonely/cer-manager"
 	"github.com/YLonely/cer-manager/api/types"
+	"github.com/YLonely/cer-manager/http"
 	"github.com/YLonely/cer-manager/log"
 	"github.com/YLonely/cer-manager/services"
 	"github.com/YLonely/cer-manager/services/checkpoint"
@@ -22,12 +23,13 @@ const DefaultRootPath = "/var/lib/cermanager"
 const DefaultSocketName = "daemon.socket"
 
 type Server struct {
-	services map[cerm.ServiceType]services.Service
-	listener net.Listener
-	group    sync.WaitGroup
+	services   map[cerm.ServiceType]services.Service
+	httpServer *http.Server
+	listener   net.Listener
+	group      sync.WaitGroup
 }
 
-func NewServer() (*Server, error) {
+func NewServer(httpPort int) (*Server, error) {
 	if err := os.MkdirAll(DefaultRootPath, 0755); err != nil {
 		return nil, err
 	}
@@ -49,12 +51,20 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create namespace service")
 	}
+	var httpServer *http.Server
+	if httpPort != 0 {
+		httpServer, err = http.NewServer(DefaultRootPath, httpPort)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create http server")
+		}
+	}
 	svr := &Server{
 		services: map[cerm.ServiceType]services.Service{
 			cerm.NamespaceService:  namespaceSvr,
 			cerm.CheckpointService: checkpointSvr,
 		},
-		listener: listener,
+		listener:   listener,
+		httpServer: httpServer,
 	}
 	for _, service := range svr.services {
 		if err = service.Init(); err != nil {
@@ -66,6 +76,13 @@ func NewServer() (*Server, error) {
 
 func (s *Server) Start(ctx context.Context) chan error {
 	errorC := make(chan error, 1)
+	if s.httpServer != nil {
+		go func() {
+			ec := s.httpServer.Start()
+			err := <-ec
+			errorC <- err
+		}()
+	}
 	go func() {
 		for {
 			conn, err := s.listener.Accept()
@@ -116,6 +133,11 @@ func (s *Server) Shutdown() {
 		if err := ss.Stop(); err != nil {
 			svrName := cerm.Type2Services[t]
 			log.Raw().Errorf("%s service shutdown with error %v", svrName, err)
+		}
+	}
+	if s.httpServer != nil {
+		if err := s.httpServer.Shutdown(); err != nil {
+			log.Raw().WithError(err).Error("http server shutdown with error")
 		}
 	}
 }

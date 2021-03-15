@@ -12,9 +12,11 @@ const (
 const (
 	NamespaceService ServiceType = iota + 10
 	CheckpointService
+	HttpService
 )
 
 var Type2Services = map[ServiceType]string{
 	NamespaceService:  "namespace",
 	CheckpointService: "checkpoint",
+	HttpService:       "http",
 }
