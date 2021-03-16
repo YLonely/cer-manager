@@ -10,6 +10,7 @@ require (
 	github.com/YLonely/criuimages v0.0.0-20201209020919-49cefe40898f
 	github.com/YLonely/ipcgo v0.0.0-20201229065543-273a72bb3d57
 	github.com/containerd/cgroups v0.0.0-20201109155418-13abef5d31ec // indirect
+	github.com/containerd/console v1.0.1
 	github.com/containerd/containerd v1.4.1
 	github.com/containerd/continuity v0.0.0-20200928162600-f2cc35102c2a // indirect
 	github.com/containerd/fifo v0.0.0-20201026212402-0724c46b320c // indirect
@@ -22,6 +23,7 @@ require (
 	github.com/imdario/mergo v0.3.11 // indirect
 	github.com/opencontainers/image-spec v1.0.1
 	github.com/opencontainers/runc v0.1.1 // indirect
+	github.com/opencontainers/runtime-spec v1.0.2
 	github.com/opencontainers/selinux v1.6.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect

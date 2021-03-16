@@ -6,4 +6,5 @@ const (
 	NamespaceIPC NamespaceType = "ipc"
 	NamespaceUTS NamespaceType = "uts"
 	NamespaceMNT NamespaceType = "mnt"
+	NamespaceNET NamespaceType = "net"
 )

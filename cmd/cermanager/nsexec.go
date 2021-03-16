@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/YLonely/cer-manager/api/types"
+	_ "github.com/YLonely/cer-manager/http"
 	"github.com/YLonely/cer-manager/namespace"
 	_ "github.com/YLonely/cer-manager/nsenter"
 	"github.com/urfave/cli"
