@@ -1,6 +1,7 @@
 package mnt
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -180,7 +181,7 @@ func (m *mountManager) makePreRelease() func(*os.File) error {
 		helper, err := namespace.NewNamespaceExecEnterHelper(
 			namespace.NamespaceFunctionKeyRelease,
 			types.NamespaceMNT,
-			int(f.Fd()),
+			fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), int(f.Fd())),
 			map[string]string{
 				"bundle": bundle,
 			},
