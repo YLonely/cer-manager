@@ -1,9 +1,7 @@
 package namespace
 
 import (
-	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 
@@ -29,10 +27,8 @@ const (
 
 func NewNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.NamespaceType, args map[string]string) (*NamespaceHelper, error) {
 	cmd := exec.Command("/proc/self/exe", "nsexec")
-	if args != nil {
-		for name, value := range args {
-			cmd.Args = append(cmd.Args, "--"+name, value)
-		}
+	for name, value := range args {
+		cmd.Args = append(cmd.Args, "--"+name, value)
 	}
 	cmd.Args = append(cmd.Args, string(key), string(nsType))
 	cmd.Env = append(
@@ -45,22 +41,20 @@ func NewNamespaceExecCreateHelper(key NamespaceFunctionKey, nsType types.Namespa
 	}, nil
 }
 
-func NewNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.NamespaceType, fd int, args map[string]string) (*NamespaceHelper, error) {
-	if fd <= 0 {
-		return nil, errors.New("invalid fd value")
+func NewNamespaceExecEnterHelper(key NamespaceFunctionKey, nsType types.NamespaceType, fdPath string, args map[string]string) (*NamespaceHelper, error) {
+	if fdPath == "" {
+		return nil, errors.New("empty namespace fd path")
 	}
 	cmd := exec.Command("/proc/self/exe", "nsexec")
-	if args != nil {
-		for name, value := range args {
-			cmd.Args = append(cmd.Args, "--"+name, value)
-		}
+	for name, value := range args {
+		cmd.Args = append(cmd.Args, "--"+name, value)
 	}
 	cmd.Args = append(cmd.Args, string(key), string(nsType))
 	cmd.Env = append(
 		cmd.Env,
 		nsexecOpKey+"="+nsexecOpEnter,
 		nsexecNSTypeKey+"="+string(nsType),
-		nsexecNSPathKey+"="+fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), fd),
+		nsexecNSPathKey+"="+fdPath,
 	)
 	return &NamespaceHelper{
 		Cmd: cmd,
