@@ -53,6 +53,7 @@ func NewServer(root string, port int) (*Server, error) {
 	http.HandleFunc("/namespace/update", ret.updateNamespace)
 	http.HandleFunc("/image/upload", ret.uploadImage)
 	http.HandleFunc("/checkpoint", ret.makeCheckpoint)
+	http.HandleFunc("/image", listImages)
 	return ret, nil
 }
 
@@ -180,7 +181,7 @@ func (svr *Server) makeCheckpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var resp makeCheckpointResponse
-	ctx, client, err := initial(&req)
+	ctx, client, err := initial(req.Namespace)
 	if err != nil {
 		entry.WithError(err).Error("failed to initial the process")
 		resp.Error = errInitialFailed.Error()
@@ -209,7 +210,44 @@ func (svr *Server) makeCheckpoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func initial(req *makeCheckpointRequest) (ctx context.Context, client *containerd.Client, err error) {
+func listImages(w http.ResponseWriter, r *http.Request) {
+	entry := log.Logger(cerm.HttpService, "listImages")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var req listImagesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	ctx, client, err := initial(req.Namespace)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		entry.Error(err)
+		return
+	}
+	imageService := client.ImageService()
+	images, err := imageService.List(ctx)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		entry.Error(err)
+		return
+	}
+	var resp listImagesResponse
+	for _, img := range images {
+		if strings.HasPrefix(img.Name, req.Prefix) {
+			resp.Images = append(resp.Images, img.Name)
+		}
+	}
+	if err = json.NewEncoder(w).Encode(resp); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		entry.Error(err)
+		return
+	}
+}
+
+func initial(namespace string) (ctx context.Context, client *containerd.Client, err error) {
 	var (
 		ps string
 		pt v1.Platform
@@ -223,7 +261,7 @@ func initial(req *makeCheckpointRequest) (ctx context.Context, client *container
 	if err != nil {
 		return
 	}
-	ctx = namespaces.WithNamespace(context.Background(), req.Namespace)
+	ctx = namespaces.WithNamespace(context.Background(), namespace)
 	return
 }
 

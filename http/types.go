@@ -38,3 +38,12 @@ type makeCheckpointRequest struct {
 type makeCheckpointResponse struct {
 	Error string `json:"error,omitempty"`
 }
+
+type listImagesRequest struct {
+	Prefix    string `json:"prefix"`
+	Namespace string `json:"namespace"`
+}
+
+type listImagesResponse struct {
+	Images []string `json:"images"`
+}
