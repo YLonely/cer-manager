@@ -27,6 +27,8 @@ int get_ns_flag(char *ns_type) {
         return CLONE_NEWUTS;
     else if (!strcmp(ns_type, "ipc"))
         return CLONE_NEWIPC;
+    else if (!strcmp(ns_type, "net"))
+        return CLONE_NEWNET;
     return -1;
 }
 

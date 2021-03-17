@@ -22,11 +22,13 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands/tasks"
+	"github.com/containerd/containerd/defaults"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/runtime/v2/runc/options"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -113,9 +115,9 @@ func (svr *Server) updateNamespace(w http.ResponseWriter, r *http.Request) {
 	} else {
 		resp.Message = "OK"
 	}
-	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		entry.Error(err)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -171,33 +173,39 @@ func (svr *Server) makeCheckpoint(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(tarFilePath); err != nil {
 		if os.IsNotExist(err) {
 			http.Error(w, fmt.Sprintf("image %s does not exist", req.ImageName), http.StatusBadRequest)
-			return
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			entry.WithError(err).Error("failed to stat image")
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		entry.WithError(err).Error("failed to stat image")
+		return
 	}
+	var resp makeCheckpointResponse
 	ctx, client, err := initial(&req)
 	if err != nil {
-		entry.Error(err)
-		http.Error(w, errInitialFailed.Error(), http.StatusInternalServerError)
-		return
+		entry.WithError(err).Error("failed to initial the process")
+		resp.Error = errInitialFailed.Error()
+	} else {
+		img, err := importImage(ctx, client, tarFilePath, &req)
+		if err != nil {
+			entry.WithError(err).Errorf("failed to import the image %s", req.TarFileName)
+			resp.Error = errImageImportFailed.Error()
+		} else {
+			c, err := startContainer(ctx, client, img)
+			if err != nil {
+				entry.WithError(err).Errorf("failed to start a container from %s", req.ImageName)
+				resp.Error = errContainerStartFailed.Error()
+			} else {
+				err = checkpoint(ctx, client, c, &req)
+				if err != nil {
+					entry.WithError(err).Errorf("failed to make checkpoint %s", req.CheckpointName)
+					resp.Error = errCheckpointFailed.Error()
+				}
+			}
+		}
 	}
-	img, err := importImage(ctx, client, tarFilePath, &req)
-	if err != nil {
+	if err = json.NewEncoder(w).Encode(resp); err != nil {
 		entry.Error(err)
-		http.Error(w, errImageImportFailed.Error(), http.StatusInternalServerError)
-		return
-	}
-	c, err := startContainer(ctx, client, img)
-	if err != nil {
-		entry.Error(err)
-		http.Error(w, errContainerStartFailed.Error(), http.StatusInternalServerError)
-		return
-	}
-	err = checkpoint(ctx, client, c, &req)
-	if err != nil {
-		entry.Error(err)
-		http.Error(w, errCheckpointFailed.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -263,14 +271,20 @@ func startContainer(ctx context.Context, client *containerd.Client, img *images.
 		opts  []oci.SpecOpts
 		cOpts []containerd.NewContainerOpts
 		s     specs.Spec
+		task  containerd.Task
 	)
 	id := generateID(*img)
 	image := containerd.NewImage(client, *img)
 	opts = append(opts, oci.WithDefaultSpec(), oci.WithDefaultUnixDevices, oci.WithImageConfig(image))
-	cOpts = append(cOpts, containerd.WithImage(image), containerd.WithSpec(&s, opts...))
+	cOpts = append(cOpts,
+		containerd.WithImage(image),
+		containerd.WithRuntime(defaults.DefaultRuntime, &options.Options{}),
+		containerd.WithNewSnapshot(id, image),
+		containerd.WithImageStopSignal(image, "SIGTERM"),
+		containerd.WithSpec(&s, opts...))
 	c, err = client.NewContainer(ctx, id, cOpts...)
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer func() {
 		if err != nil {
@@ -278,33 +292,34 @@ func startContainer(ctx context.Context, client *containerd.Client, img *images.
 		}
 	}()
 	var con console.Console
-	task, err := tasks.NewTask(ctx, client, c, "", con, false, "", []cio.Opt{})
+	task, err = tasks.NewTask(ctx, client, c, "", con, false, "", []cio.Opt{cio.WithFIFODir("")})
 	if err != nil {
-		return nil, err
+		return
 	}
 	if err = task.Start(ctx); err != nil {
-		return nil, err
+		return
 	}
 	defer func() {
 		if err != nil {
 			task.Delete(ctx, containerd.WithProcessKill)
 		}
 	}()
-	helper, err := ns.NewNamespaceExecEnterHelper(
+	var helper *ns.NamespaceHelper
+	if helper, err = ns.NewNamespaceExecEnterHelper(
 		namespaceFunctionKeyHealthCheck,
 		types.NamespaceNET,
 		fmt.Sprintf("/proc/%d/ns/net", task.Pid()),
 		nil,
-	)
-	if err != nil {
-		return nil, err
+	); err != nil {
+		return
 	}
 	if err = helper.Do(true); err != nil {
-		return nil, errors.Wrap(err, "failed to do health check")
+		return
 	}
 	if string(helper.Ret) != "OK" {
-		return nil, errors.Errorf("health check returns %s", string(helper.Ret))
+		err = errors.Errorf("health check return %s", helper.Ret)
 	}
+	time.Sleep(time.Second * 1)
 	return
 }
 
@@ -316,7 +331,7 @@ func checkpoint(ctx context.Context, client *containerd.Client, c containerd.Con
 		containerd.WithCheckpointRuntime,
 		containerd.WithCheckpointImage,
 		containerd.WithCheckpointRW,
-		containerd.WithCheckpointTask,
+		containerd.WithCheckpointTask(false),
 	}
 	task, err := c.Task(ctx, nil)
 	if err != nil {
@@ -341,7 +356,7 @@ func healthCheck(map[string]interface{}) ([]byte, error) {
 		last   error
 	)
 	for i := 0; i < round; i++ {
-		resp, err := http.Get("http://127.0.0.1:8080/_/health/")
+		resp, err := http.Get("http://127.0.0.1:8080/_/health")
 		if err == nil {
 			defer resp.Body.Close()
 			bs, err := ioutil.ReadAll(resp.Body)
@@ -355,10 +370,7 @@ func healthCheck(map[string]interface{}) ([]byte, error) {
 		}
 		time.Sleep(period)
 	}
-	if last == nil {
-		last = errors.New("health check timeout")
-	}
-	return nil, last
+	return nil, errors.Wrap(last, "healht check timeout")
 }
 
 func generateID(img images.Image) string {

@@ -42,3 +42,5 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/v3 v3.0.3 // indirect
 )
+
+replace github.com/containerd/containerd v1.4.1 => github.com/YLonely/containerd v1.4.2-0.20210206022959-3b6d7aef06ff
