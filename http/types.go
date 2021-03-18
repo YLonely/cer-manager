@@ -36,7 +36,7 @@ type makeCheckpointRequest struct {
 }
 
 type makeCheckpointResponse struct {
-	Error string `json:"error,omitempty"`
+	Error string `json:"error"`
 }
 
 type listImagesRequest struct {

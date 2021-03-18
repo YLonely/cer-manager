@@ -270,6 +270,7 @@ func importImage(ctx context.Context, client *containerd.Client, tarFilePath str
 	if err != nil {
 		return nil, err
 	}
+	defer reader.Close()
 	imgs, err := client.Import(ctx, reader, containerd.WithAllPlatforms(false))
 	if err != nil {
 		return nil, err
