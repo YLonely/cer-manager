@@ -105,6 +105,7 @@ func (svr *Server) updateNamespace(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	log.WithInterface(entry, "request", req).Debug()
 	if req.CheckpointName == "" {
 		http.Error(w, "checkpoint name can not be empty", http.StatusBadRequest)
 		return
@@ -116,6 +117,7 @@ func (svr *Server) updateNamespace(w http.ResponseWriter, r *http.Request) {
 	} else {
 		resp.Message = "OK"
 	}
+	log.WithInterface(entry, "response", resp).Debug()
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		entry.Error(err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -132,7 +134,7 @@ func (svr *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	entry.Infof("receive a file %s with size %v", handler.Filename, handler.Size)
+	entry.Debugf("receive a file %s with size %v", handler.Filename, handler.Size)
 	uploadPath := path.Join(svr.root, "uploads")
 	if err := os.MkdirAll(uploadPath, 0666); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -163,6 +165,7 @@ func (svr *Server) makeCheckpoint(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	log.WithInterface(entry, "request", req).Debug()
 	if req.TarFileName == "" || req.ImageName == "" || req.CheckpointName == "" {
 		http.Error(w, "tar file name, image name or checkpoint name can not be empty", http.StatusBadRequest)
 		return
@@ -204,6 +207,7 @@ func (svr *Server) makeCheckpoint(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	log.WithInterface(entry, "response", resp).Debug()
 	if err = json.NewEncoder(w).Encode(resp); err != nil {
 		entry.Error(err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -221,6 +225,7 @@ func listImages(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	log.WithInterface(entry, "request", req).Debug()
 	ctx, client, err := initial(req.Namespace)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -240,6 +245,7 @@ func listImages(w http.ResponseWriter, r *http.Request) {
 			resp.Images = append(resp.Images, img.Name)
 		}
 	}
+	log.WithInterface(entry, "response", resp).Debug()
 	if err = json.NewEncoder(w).Encode(resp); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		entry.Error(err)
