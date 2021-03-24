@@ -93,6 +93,13 @@ func (m *manager) Get(ref types.Reference, extraRefs ...types.Reference) (fd int
 		err = errors.Errorf("IPC namespace of %s is used up")
 		return
 	}
+	go func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if err := set.set.CreateOne(); err != nil {
+			log.Raw().WithError(err).Errorf("failed to create a new IPC namespace for %s", ref)
+		}
+	}()
 	fd = int(f.Fd())
 	m.usedNamespace[fd] = struct {
 		ref types.Reference
@@ -111,18 +118,7 @@ func (m *manager) Put(fd int) error {
 	if !exists {
 		return errors.Errorf("invalid fd %d", fd)
 	}
-	go func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		defer item.f.Close()
-		set, exists := m.sets[item.ref.Digest()]
-		if !exists {
-			panic(errors.Errorf("IPC namesapce set of %s does not exist", item.ref))
-		}
-		if err := set.set.CreateOne(); err != nil {
-			log.Raw().WithError(err).Errorf("failed to create a new IPC namespace for %s", item.ref)
-		}
-	}()
+	item.f.Close()
 	delete(m.usedNamespace, fd)
 	return nil
 }

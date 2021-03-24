@@ -52,6 +52,17 @@ func (m *manager) Get(ref types.Reference, extraRefs ...types.Reference) (fd int
 		err = errors.Errorf("UTS namespace of ref %s is used up")
 		return
 	}
+	// Keep the number of namespace resources at the set value(capacity)
+	go func() {
+		m.m.Lock()
+		defer m.m.Unlock()
+		if set.Capacity() >= set.DefaultCapacity() {
+			return
+		}
+		if err := set.CreateOne(); err != nil {
+			log.Raw().WithError(err).Errorf("failed to create a new UTS namespace for %s", ref)
+		}
+	}()
 	fd = int(f.Fd())
 	m.usedNamespace[fd] = struct {
 		ref types.Reference

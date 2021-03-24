@@ -14,6 +14,7 @@ func NewSet(capacity int, namespaceCreator func() (*os.File, error), preReleaseN
 		files[int(f.Fd())] = f
 	}
 	return &Set{
+		defaultCapacity:     capacity,
 		files:               files,
 		namespaceCreator:    namespaceCreator,
 		preReleaseNamespace: preReleaseNamespace,
@@ -21,6 +22,7 @@ func NewSet(capacity int, namespaceCreator func() (*os.File, error), preReleaseN
 }
 
 type Set struct {
+	defaultCapacity     int
 	files               map[int]*os.File
 	namespaceCreator    func() (*os.File, error)
 	preReleaseNamespace func(*os.File) error
@@ -28,6 +30,10 @@ type Set struct {
 
 func (s Set) Capacity() int {
 	return len(s.files)
+}
+
+func (s Set) DefaultCapacity() int {
+	return s.defaultCapacity
 }
 
 func (s *Set) Get() *os.File {
