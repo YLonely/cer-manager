@@ -396,7 +396,7 @@ func checkpoint(ctx context.Context, client *containerd.Client, c containerd.Con
 
 func healthCheck(map[string]interface{}) ([]byte, error) {
 	var (
-		round  = 10
+		round  = 20
 		period = time.Millisecond * 500
 		last   error
 	)
