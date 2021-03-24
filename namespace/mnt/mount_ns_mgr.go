@@ -123,6 +123,13 @@ func (mgr *mountManager) Get(ref types.Reference, extraRefs ...types.Reference) 
 			bundle: info.(string),
 			f:      f,
 		}
+		go func() {
+			mgr.m.Lock()
+			defer mgr.m.Unlock()
+			if err := set.CreateOne(); err != nil {
+				log.Raw().WithError(err).Errorf("failed to create a new MNT namespace for %s", ref)
+			}
+		}()
 		return
 	}
 	err = errors.Errorf("MNT namespace of %s is not managed by us", ref)
@@ -142,18 +149,11 @@ func (mgr *mountManager) Put(fd int) error {
 		if _, exists := mgr.usedBundles[fd]; !exists {
 			return
 		}
-
 		defer info.f.Close()
 		defer delete(mgr.usedBundles, fd)
-		set, exists := mgr.sets[info.ref.Digest()]
-		if !exists {
-			panic(errors.Errorf("MNT namespace set of %s does not exist", info.ref))
-		}
+		// maybe not necessary
 		if err := mgr.makePreRelease()(info.f); err != nil {
 			log.Raw().WithError(err).Errorf("failed to release the MNT namespace of fd %d", info.f.Fd())
-		}
-		if err := set.CreateOne(); err != nil {
-			log.Raw().WithError(err).Errorf("failed to create a new MNT namespace for %s", info.ref)
 		}
 	}()
 	return nil
