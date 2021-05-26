@@ -1,0 +1,94 @@
+diff --git a/libcontainer/container_linux.go b/libcontainer/container_linux.go
+index ee08c17e..691ecf43 100644
+--- a/libcontainer/container_linux.go
++++ b/libcontainer/container_linux.go
+@@ -880,10 +880,6 @@ func (c *linuxContainer) handleCheckpointingExternalNamespaces(rpcOpts *criurpc.
+ }
+ 
+ func (c *linuxContainer) handleRestoringExternalNamespaces(rpcOpts *criurpc.CriuOpts, extraFiles *[]*os.File, t configs.NamespaceType) error {
+-	if !c.criuSupportsExtNS(t) {
+-		return nil
+-	}
+-
+ 	nsPath := c.config.Namespaces.PathOf(t)
+ 	if nsPath == "" {
+ 		return nil
+@@ -1234,6 +1230,10 @@ func (c *linuxContainer) Restore(process *Process, criuOpts *CriuOpts) error {
+ 	defer c.m.Unlock()
+ 
+ 	var extraFiles []*os.File
++	externalMountNamespace := false
++	if c.config.Namespaces.PathOf(configs.NEWNS) != "" {
++		externalMountNamespace = true
++	}
+ 
+ 	// Restore is unlikely to work if os.Geteuid() != 0 || system.RunningInUserNS().
+ 	// (CLI prints a warning)
+@@ -1270,20 +1270,25 @@ func (c *linuxContainer) Restore(process *Process, criuOpts *CriuOpts) error {
+ 	// * its parent must not be overmounted
+ 	// c.config.Rootfs is bind-mounted to a temporary directory
+ 	// to satisfy these requirements.
+-	root := filepath.Join(c.root, "criu-root")
+-	if err := os.Mkdir(root, 0755); err != nil {
+-		return err
+-	}
+-	defer os.Remove(root)
+-	root, err = filepath.EvalSymlinks(root)
+-	if err != nil {
+-		return err
+-	}
+-	err = unix.Mount(c.config.Rootfs, root, "", unix.MS_BIND|unix.MS_REC, "")
+-	if err != nil {
+-		return err
++	root := c.config.Rootfs
++	if !externalMountNamespace {
++		// if we have external mount namespace provided, do not mount rootfs to a temp mountpoint
++		root = filepath.Join(c.root, "criu-root")
++		if err := os.Mkdir(root, 0755); err != nil {
++			return err
++		}
++		defer os.Remove(root)
++		root, err = filepath.EvalSymlinks(root)
++		if err != nil {
++			return err
++		}
++		err = unix.Mount(c.config.Rootfs, root, "", unix.MS_BIND|unix.MS_REC, "")
++		if err != nil {
++			return err
++		}
++		defer unix.Unmount(root, unix.MNT_DETACH)
+ 	}
+-	defer unix.Unmount(root, unix.MNT_DETACH)
++
+ 	t := criurpc.CriuReqType_RESTORE
+ 	req := &criurpc.CriuReq{
+ 		Type: &t,
+@@ -1313,19 +1318,19 @@ func (c *linuxContainer) Restore(process *Process, criuOpts *CriuOpts) error {
+ 	// Same as during checkpointing. If the container has a specific network namespace
+ 	// assigned to it, this now expects that the checkpoint will be restored in a
+ 	// already created network namespace.
+-	if err := c.handleRestoringExternalNamespaces(req.Opts, &extraFiles, configs.NEWNET); err != nil {
+-		return err
+-	}
+-
+-	// Same for PID namespaces.
+-	if err := c.handleRestoringExternalNamespaces(req.Opts, &extraFiles, configs.NEWPID); err != nil {
+-		return err
++	// new: restore other types of namespace
++	for _, nsType := range []configs.NamespaceType{configs.NEWNET, configs.NEWPID, configs.NEWIPC, configs.NEWUTS, configs.NEWNS} {
++		if err := c.handleRestoringExternalNamespaces(req.Opts, &extraFiles, nsType); err != nil {
++			return err
++		}
+ 	}
+ 
+ 	// This will modify the rootfs of the container in the same way runc
+ 	// modifies the container during initial creation.
+-	if err := c.prepareCriuRestoreMounts(c.config.Mounts); err != nil {
+-		return err
++	if !externalMountNamespace {
++		if err := c.prepareCriuRestoreMounts(c.config.Mounts); err != nil {
++			return err
++		}
+ 	}
+ 
+ 	hasCgroupns := c.config.Namespaces.Contains(configs.NEWCGROUP)

@@ -1,0 +1,967 @@
+diff --git a/Makefile b/Makefile
+index d765df78c..7145c8856 100644
+--- a/Makefile
++++ b/Makefile
+@@ -104,7 +104,7 @@ export PROTOUFIX DEFINES
+ DEFINES			+= -D_FILE_OFFSET_BITS=64
+ DEFINES			+= -D_GNU_SOURCE
+ 
+-WARNINGS		:= -Wall -Wformat-security -Wdeclaration-after-statement -Wstrict-prototypes
++WARNINGS		:= 
+ 
+ CFLAGS-GCOV		:= --coverage -fno-exceptions -fno-inline -fprofile-update=atomic
+ export CFLAGS-GCOV
+@@ -125,7 +125,7 @@ ifeq ($(ASAN),1)
+ endif
+ 
+ ifneq ($(WERROR),0)
+-        WARNINGS	+= -Werror
++        WARNINGS	+= 
+ endif
+ 
+ ifeq ($(DEBUG),1)
+diff --git a/criu/cr-restore.c b/criu/cr-restore.c
+index 589087f9f..820cf3a24 100644
+--- a/criu/cr-restore.c
++++ b/criu/cr-restore.c
+@@ -224,9 +224,13 @@ static int restore_switch_stage(int next_stage)
+ static int restore_finish_ns_stage(int from, int to)
+ {
+ 	if (root_ns_mask)
++	{
++		pr_info("restore_finish_stage unlock\n");
+ 		return restore_finish_stage(task_entries, from);
++	}
+ 
+ 	/* Nobody waits for this stage change, just go ahead */
++	pr_info("restore_switch_stage_nw\n");
+ 	__restore_switch_stage_nw(to);
+ 	return 0;
+ }
+@@ -1488,7 +1492,7 @@ static inline int fork_with_pid(struct pstree_item *item)
+ 	if (kdat.has_clone3_set_tid) {
+ 		ret = clone3_with_pid_noasan(restore_task_with_children,
+ 				&ca, (clone_flags &
+-					~(CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWTIME)),
++					~(CLONE_NEWCGROUP | CLONE_NEWTIME)),
+ 				SIGCHLD, pid);
+ 	} else {
+ 		/*
+@@ -1506,7 +1510,7 @@ static inline int fork_with_pid(struct pstree_item *item)
+ 		close_pid_proc();
+ 		ret = clone_noasan(restore_task_with_children,
+ 				(clone_flags &
+-				 ~(CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWTIME)) | SIGCHLD,
++				 ~(CLONE_NEWCGROUP | CLONE_NEWTIME)) | SIGCHLD,
+ 				&ca);
+ 	}
+ 
+@@ -1780,6 +1784,7 @@ static int restore_task_with_children(void *_arg)
+ 	int ret;
+ 
+ 	current = ca->item;
++	pr_info("child start here\n");
+ 
+ 	if (current != root_item) {
+ 		char buf[12];
+@@ -1812,6 +1817,7 @@ static int restore_task_with_children(void *_arg)
+ 	if (log_init_by_pid(vpid(current)))
+ 		return -1;
+ 
++
+ 	if (current->parent == NULL) {
+ 		/*
+ 		 * The root task has to be in its namespaces before executing
+@@ -1819,10 +1825,14 @@ static int restore_task_with_children(void *_arg)
+ 		 */
+ 		if (root_ns_mask & CLONE_NEWNET) {
+ 			struct ns_id *ns = net_get_root_ns();
+-			if (ns->ext_key)
++			if (inherit_fd_lookup_id(EXTERNAL_NET_NS_FD_KEY) > 0){
++				ns->ext_key = EXTERNAL_NET_NS_FD_KEY;
++			}
++			if (ns->ext_key){
+ 				ret = net_set_ext(ns);
+-			else
++			}else{
+ 				ret = unshare(CLONE_NEWNET);
++			}
+ 			if (ret) {
+ 				pr_perror("Can't unshare net-namespace");
+ 				goto err;
+@@ -2199,11 +2209,11 @@ static int restore_root_task(struct pstree_item *init)
+ 	int root_seized = 0;
+ 	struct pstree_item *item;
+ 
+-	ret = run_scripts(ACT_PRE_RESTORE);
+-	if (ret != 0) {
+-		pr_err("Aborting restore due to pre-restore script ret code %d\n", ret);
+-		return -1;
+-	}
++	// ret = run_scripts(ACT_PRE_RESTORE);
++	// if (ret != 0) {
++	// 	pr_err("Aborting restore due to pre-restore script ret code %d\n", ret);
++	// 	return -1;
++	// }
+ 
+ 	fd = open("/proc", O_DIRECTORY | O_RDONLY);
+ 	if (fd < 0) {
+@@ -2309,14 +2319,15 @@ static int restore_root_task(struct pstree_item *init)
+ 		 * the '--empty-ns net' mode no iptables C/R is done and we
+ 		 * need to return these rules by hands.
+ 		 */
+-		ret = network_lock_internal();
++		// ret = network_lock_internal();
++		ret = 0;
+ 		if (ret)
+ 			goto out_kill;
+ 	}
+ 
+-	ret = run_scripts(ACT_POST_SETUP_NS);
+-	if (ret)
+-		goto out_kill;
++	// ret = run_scripts(ACT_POST_SETUP_NS);
++	// if (ret)
++	// 	goto out_kill;
+ 
+ 	__restore_switch_stage(CR_STATE_FORKING);
+ 
+@@ -2374,13 +2385,15 @@ skip_ns_bouncing:
+ 	if (depopulate_roots_yard(mnt_ns_fd, false))
+ 		goto out_kill;
+ 
+-	close_safe(&mnt_ns_fd);
++
++	
+ 
+ 	if (write_restored_pid())
+ 		goto out_kill;
+ 
++
+ 	/* Unlock network before disabling repair mode on sockets */
+-	network_unlock();
++	// network_unlock();
+ 
+ 	/*
+ 	 * Stop getting sigchld, after we resume the tasks they
+@@ -2422,28 +2435,29 @@ skip_ns_bouncing:
+ 
+ 	finalize_restore();
+ 
+-	ret = run_scripts(ACT_PRE_RESUME);
+-	if (ret)
+-		pr_err("Pre-resume script ret code %d\n", ret);
++	// ret = run_scripts(ACT_PRE_RESUME);
++	// if (ret)
++	// 	pr_err("Pre-resume script ret code %d\n", ret);
+ 
+ 	if (restore_freezer_state())
+ 		pr_err("Unable to restore freezer state\n");
+ 
+-	fini_cgroup();
+ 
+ 	/* Detaches from processes and they continue run through sigreturn. */
+ 	if (finalize_restore_detach())
+ 		goto out_kill_network_unlocked;
+ 
+ 	pr_info("Restore finished successfully. Tasks resumed.\n");
++	fini_cgroup();
+ 	write_stats(RESTORE_STATS);
+ 
++	close_safe(&mnt_ns_fd);
+ 	/* This has the effect of dismissing the image streamer */
+ 	close_image_dir();
+ 
+-	ret = run_scripts(ACT_POST_RESUME);
+-	if (ret != 0)
+-		pr_err("Post-resume script ret code %d\n", ret);
++	// ret = run_scripts(ACT_POST_RESUME);
++	// if (ret != 0)
++	// 	pr_err("Post-resume script ret code %d\n", ret);
+ 
+ 	if (!opts.restore_detach && !opts.exec_cmd)
+ 		wait(NULL);
+@@ -3660,6 +3674,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
+ 	RST_MEM_FIXUP_PPTR(task_args->zombies);
+ 	RST_MEM_FIXUP_PPTR(task_args->vma_ios);
+ 	RST_MEM_FIXUP_PPTR(task_args->inotify_fds);
++	RST_MEM_FIXUP_PPTR(task_args->offsets);
+ 
+ 	task_args->compatible_mode = core_is_compat(core);
+ 	/*
+diff --git a/criu/include/cr_options.h b/criu/include/cr_options.h
+index ac1c9e9c7..1988f071c 100644
+--- a/criu/include/cr_options.h
++++ b/criu/include/cr_options.h
+@@ -183,4 +183,5 @@ extern int parse_options(int argc, char **argv, bool *usage_error, bool *has_exe
+ extern int check_options(void);
+ extern void init_opts(void);
+ 
++
+ #endif /* __CR_OPTIONS_H__ */
+diff --git a/criu/include/ipc_ns.h b/criu/include/ipc_ns.h
+index c89098926..5c54a0bc9 100644
+--- a/criu/include/ipc_ns.h
++++ b/criu/include/ipc_ns.h
+@@ -2,7 +2,7 @@
+ #define __CR_IPC_NS_H__
+ 
+ extern int dump_ipc_ns(int ns_id);
+-extern int prepare_ipc_ns(int pid);
++extern int prepare_ipc_ns(int pid, int ns_fd);
+ 
+ extern struct ns_desc ipc_ns_desc;
+ 
+diff --git a/criu/include/mount.h b/criu/include/mount.h
+index d204e40d6..cbe15ccf8 100644
+--- a/criu/include/mount.h
++++ b/criu/include/mount.h
+@@ -111,7 +111,8 @@ extern int mnt_is_dir(struct mount_info *pm);
+ extern int open_mountpoint(struct mount_info *pm);
+ 
+ extern struct mount_info *collect_mntinfo(struct ns_id *ns, bool for_dump);
+-extern int prepare_mnt_ns(void);
++extern int prepare_mnt_ns(int);
++extern int prepare_mnt_ns_for_container(int);
+ 
+ extern int pivot_root(const char *new_root, const char *put_old);
+ 
+diff --git a/criu/include/namespaces.h b/criu/include/namespaces.h
+index e570aa0ab..58d3f6a68 100644
+--- a/criu/include/namespaces.h
++++ b/criu/include/namespaces.h
+@@ -227,4 +227,9 @@ extern int add_ns_shared_cb(int (*actor)(void *data), void *data);
+ extern struct ns_id *get_socket_ns(int lfd);
+ extern struct ns_id *lookup_ns_by_kid(unsigned int kid, struct ns_desc *nd);
+ 
++#define EXTERNAL_IPC_NS_FD_KEY "extRootIpcNS"
++#define EXTERNAL_UTS_NS_FD_KEY "extRootUtsNS"
++#define EXTERNAL_MNT_NS_FD_KEY "extRootMntNS"
++#define	EXTERNAL_NET_NS_FD_KEY "extRootNetNS"
++
+ #endif /* __CR_NS_H__ */
+diff --git a/criu/include/restorer.h b/criu/include/restorer.h
+index dfb4e6b71..ce0a70a62 100644
+--- a/criu/include/restorer.h
++++ b/criu/include/restorer.h
+@@ -118,13 +118,20 @@ struct thread_restore_args {
+ 
+ typedef long (*thread_restore_fcall_t) (struct thread_restore_args *args);
+ 
+-struct restore_vma_io {
++struct restore_vma_io{
+ 	int nr_iovs;
+ 	loff_t off;
++	uint64_t *iov_offset;
+ 	struct iovec iovs[0];
+ };
+ 
+-#define RIO_SIZE(niovs)	(sizeof(struct restore_vma_io) + (niovs) * sizeof(struct iovec))
++struct iovs_offset{
++	int len;
++	uint64_t offset[0];
++};
++
++#define RIO_SIZE(niovs) (sizeof(struct restore_vma_io) + (niovs) * sizeof(struct iovec))
++#define OFFSET_SIZE(len) (sizeof(struct iovs_offset) + (len) * sizeof(uint64_t))
+ 
+ struct task_restore_args {
+ 	struct thread_restore_args	*t;			/* thread group leader */
+@@ -151,6 +158,7 @@ struct task_restore_args {
+ 
+ 	int				vma_ios_fd;
+ 	struct restore_vma_io		*vma_ios;
++	struct iovs_offset 			*offsets;
+ 	unsigned int			vma_ios_n;
+ 
+ 	struct restore_posix_timer	*posix_timers;
+diff --git a/criu/include/uts_ns.h b/criu/include/uts_ns.h
+index ab054ffe8..195ea9ad6 100644
+--- a/criu/include/uts_ns.h
++++ b/criu/include/uts_ns.h
+@@ -2,7 +2,7 @@
+ #define __CR_UTS_NS_H__
+ 
+ extern int dump_uts_ns(int ns_id);
+-extern int prepare_utsns(int pid);
++extern int prepare_utsns(int pid, int ns_fd);
+ 
+ extern struct ns_desc uts_ns_desc;
+ 
+diff --git a/criu/ipc_ns.c b/criu/ipc_ns.c
+index 915aea20b..9f2b14ff8 100644
+--- a/criu/ipc_ns.c
++++ b/criu/ipc_ns.c
+@@ -922,24 +922,63 @@ static int prepare_ipc_var(int pid)
+ 	return 0;
+ }
+ 
+-int prepare_ipc_ns(int pid)
+-{
+-	int ret;
++int prepare_ipc_shm_info(int pid) {
++    int ret;
++    struct cr_img *img;
++
++    pr_info("Restoring information of IPC shared memory\n");
++    img = open_image(CR_FD_IPCNS_SHM, O_RSTR, pid);
++    if (!img)
++        return -1;
++
++    while (1) {
++        IpcShmEntry *shm;
++
++        ret = pb_read_one_eof(img, &shm, PB_IPC_SHM);
++        if (ret < 0) {
++            pr_err("Failed to read IPC shared memory segment\n");
++            ret = -EIO;
++            goto err;
++        }
++        if (ret == 0)
++            break;
++
++        if (collect_sysv_shmem(shm->desc->id, shm->size)){
++			ret = -1;
++			goto err;
++		}
++    }
+ 
+-	pr_info("Restoring IPC namespace\n");
+-	ret = prepare_ipc_var(pid);
+-	if (ret < 0)
+-		return ret;
+-	ret = prepare_ipc_shm(pid);
+-	if (ret < 0)
+-		return ret;
+-	ret = prepare_ipc_msg(pid);
+-	if (ret < 0)
+-		return ret;
+-	ret = prepare_ipc_sem(pid);
+-	if (ret < 0)
+-		return ret;
+-	return 0;
++    close_image(img);
++    return 0;
++err:
++    close_image(img);
++    return ret;
++}
++
++int prepare_ipc_ns(int pid, int ns_fd) {
++    int ret;
++
++    pr_info("Restoring IPC namespace with fd %d\n", ns_fd);
++    if (ns_fd != -1) {
++        if (prepare_ipc_shm_info(pid))
++            return -1;
++        ret = setns(ns_fd, CLONE_NEWIPC);
++        return ret;
++    }
++    ret = prepare_ipc_var(pid);
++    if (ret < 0)
++        return ret;
++    ret = prepare_ipc_shm(pid);
++    if (ret < 0)
++        return ret;
++    ret = prepare_ipc_msg(pid);
++    if (ret < 0)
++        return ret;
++    ret = prepare_ipc_sem(pid);
++    if (ret < 0)
++        return ret;
++    return 0;
+ }
+ 
+ struct ns_desc ipc_ns_desc = NS_DESC_ENTRY(CLONE_NEWIPC, "ipc");
+diff --git a/criu/mount.c b/criu/mount.c
+index 25ef7f09e..3de914f80 100644
+--- a/criu/mount.c
++++ b/criu/mount.c
+@@ -2719,6 +2719,21 @@ static int fixup_remap_mounts(void)
+ 	return 0;
+ }
+ 
++static int cr_change_root(char *root){
++    if (!root)
++        return -1;
++    pr_info("Move the root to %s\n", root);
++    if (chdir(root)) {
++        pr_perror("chdir(%s) failed", root);
++        return -1;
++    }
++    if (chroot(root)) {
++        pr_perror("chroot(%s) failed", root);
++        return -1;
++    }
++    return 0;
++}
++
+ static int cr_pivot_root(char *root)
+ {
+ 	char tmp_dir_tmpl[] = "crtools-put-root.XXXXXX";
+@@ -2840,16 +2855,17 @@ static int create_mnt_roots(void)
+ 
+ 	if (mnt_roots)
+ 		return 0;
+-
+ 	mnt_roots = xstrdup("/tmp/.criu.mntns.XXXXXX");
+ 	if (mnt_roots == NULL)
+ 		goto out;
+ 
+-	if (mkdtemp(mnt_roots) == NULL) {
++	if (mkdtemp(mnt_roots) == NULL)
++	{
+ 		pr_perror("Unable to create a temporary directory");
+ 		mnt_roots = NULL;
+ 		goto out;
+ 	}
++
+ 	chmod(mnt_roots, 0777);
+ 
+ 	exit_code = 0;
+@@ -3099,6 +3115,7 @@ int mntns_maybe_create_roots(void)
+ 	if (!(root_ns_mask & CLONE_NEWNS))
+ 		return 0;
+ 
++
+ 	return create_mnt_roots();
+ }
+ 
+@@ -3301,7 +3318,7 @@ static int populate_mnt_ns(void)
+ 		return -1;
+ 
+ 	if (umount_clean_path())
+-		return -1;
++	 	return -1;
+ 	return ret;
+ }
+ 
+@@ -3309,36 +3326,39 @@ static int __depopulate_roots_yard(void)
+ {
+ 	int ret = 0;
+ 
+-	if (mnt_roots == NULL)
+-		return 0;
++    if (mnt_roots == NULL)
++        return 0;
+ 
+-	if (mount("none", mnt_roots, "none", MS_REC|MS_PRIVATE, NULL)) {
+-		pr_perror("Can't remount root with MS_PRIVATE");
+-		ret = 1;
+-	}
+-	/*
+-	 * Don't exit after a first error, because this function
+-	 * can be used to rollback in a error case.
+-	 * Don't worry about MNT_DETACH, because files are restored after this
+-	 * and nobody will not be restored from a wrong mount namespace.
+-	 */
+-	if (umount2(mnt_roots, MNT_DETACH)) {
+-		pr_perror("Can't unmount %s", mnt_roots);
+-		ret = -1;
+-	}
++    if (mount("none", mnt_roots, "none", MS_REC | MS_PRIVATE, NULL)) {
++        pr_perror("Can't remount root with MS_PRIVATE");
++        ret = 1;
++    }
++    /*
++     * Don't exit after a first error, because this function
++     * can be used to rollback in a error case.
++     * Don't worry about MNT_DETACH, because files are restored after this
++     * and nobody will not be restored from a wrong mount namespace.
++     */
++    if (umount2(mnt_roots, MNT_DETACH)) {
++        pr_perror("Can't unmount %s", mnt_roots);
++        ret = -1;
++    }
+ 
+-	if (rmdir(mnt_roots)) {
+-		pr_perror("Can't remove the directory %s", mnt_roots);
+-		ret = -1;
+-	}
++    if (rmdir(mnt_roots)) {
++        pr_perror("Can't remove the directory %s", mnt_roots);
++        ret = -1;
++    }
+ 
+-	return ret;
++    return ret;
+ }
+ 
+ int depopulate_roots_yard(int mntns_fd, bool only_ghosts)
+ {
+ 	int ret = 0, old_cwd = -1, old_ns = -1;
+ 
++	if (inherit_fd_lookup_id(EXTERNAL_MNT_NS_FD_KEY) != -1)
++		return 0;
++
+ 	if (mntns_fd < 0) {
+ 		ret |= try_clean_remaps(only_ghosts);
+ 		cleanup_mnt_ns();
+@@ -3396,7 +3416,67 @@ void cleanup_mnt_ns(void)
+ 		pr_perror("Can't remove the directory %s", mnt_roots);
+ }
+ 
+-int prepare_mnt_ns(void)
++int prepare_mnt_ns_for_container(int ns_fd)
++{
++	int ret = -1, rst = -1, fd;
++    struct ns_id *nsid;
++    if (ns_fd == -1)
++        return ret;
++    if (!(root_ns_mask & CLONE_NEWNS))
++        return 0;
++
++    pr_info("Restoring mount namespace for container\n");
++	if (setns(ns_fd, CLONE_NEWNS))
++	{
++		pr_err("Can't enter namespace");
++		return -1;
++	}
++
++	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next)
++	{
++		char path[PATH_MAX];
++
++		if (nsid->nd != &mnt_ns_desc)
++			continue;
++
++		//change root
++		if(cr_change_root(opts.root)){
++			pr_err("cant change root\n");
++			return -1;
++		}
++		//mount proc
++		if (mount("proc", "/proc", "proc", 0, NULL))
++		{
++            pr_err("mount proc with error %d\n", errno);
++            return -1;
++		}
++
++		/* Pin one with a file descriptor */
++		nsid->mnt.nsfd_id = fdstore_add(ns_fd);
++		if (nsid->mnt.nsfd_id < 0)
++		{
++			pr_err("Can't add ns fd\n");
++			return -1;
++		}
++
++		/* root fd is used to restore file mappings */
++		fd = open_proc(PROC_SELF, "root");
++		if (fd < 0)
++			return -1;
++		nsid->mnt.root_fd_id = fdstore_add(fd);
++		if (nsid->mnt.root_fd_id < 0)
++		{
++			pr_err("Can't add root fd\n");
++			close(fd);
++			return -1;
++		}
++		close(fd);
++	}
++
++	return 0;	
++}
++
++int prepare_mnt_ns(int ns_fd)
+ {
+ 	int ret = -1, rst = -1, fd;
+ 	struct ns_id ns = { .type = NS_CRIU, .ns_pid = PROC_SELF, .nd = &mnt_ns_desc };
+@@ -3405,6 +3485,10 @@ int prepare_mnt_ns(void)
+ 	if (!(root_ns_mask & CLONE_NEWNS))
+ 		return 0;
+ 
++	if (ns_fd != -1){
++		return prepare_mnt_ns_for_container(ns_fd);
++	}
++
+ 	pr_info("Restoring mount namespace\n");
+ 
+ 	if (!opts.root) {
+@@ -3431,19 +3515,18 @@ int prepare_mnt_ns(void)
+ 
+ 		free_mntinfo(old);
+ 	}
++	rst = open_proc(PROC_SELF, "ns/mnt");
++	if (rst < 0)
++		return -1;
+ 
+ 	ret = populate_mnt_ns();
+ 	if (ret)
+ 		return -1;
+ 
+-	rst = open_proc(PROC_SELF, "ns/mnt");
+-	if (rst < 0)
+-		return -1;
+-
+ 	/* restore non-root namespaces */
+ 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+-		char path[PATH_MAX];
+ 
++		char path[PATH_MAX];
+ 		if (nsid->nd != &mnt_ns_desc)
+ 			continue;
+ 		/* Create the new mount namespace */
+@@ -3451,7 +3534,6 @@ int prepare_mnt_ns(void)
+ 			pr_perror("Unable to create a new mntns");
+ 			goto err;
+ 		}
+-
+ 		fd = open_proc(PROC_SELF, "ns/mnt");
+ 		if (fd < 0)
+ 			goto err;
+@@ -3465,8 +3547,9 @@ int prepare_mnt_ns(void)
+ 			 * namespace, because there are file descriptors
+ 			 * linked with it (e.g. to bind-mount slave pty-s).
+ 			 */
+-			if (setns(rst, CLONE_NEWNS)) {
+-				pr_perror("Can't restore mntns back");
++			if (setns(rst, CLONE_NEWNS))
++			{
++				pr_perror("error\n");
+ 				goto err;
+ 			}
+ 			SWAP(rst, fd);
+diff --git a/criu/namespaces.c b/criu/namespaces.c
+index 796f412c5..3ccde0620 100644
+--- a/criu/namespaces.c
++++ b/criu/namespaces.c
+@@ -27,7 +27,6 @@
+ #include "net.h"
+ #include "cgroup.h"
+ #include "fdstore.h"
+-
+ #include "protobuf.h"
+ #include "util.h"
+ #include "images/ns.pb-c.h"
+@@ -1751,12 +1750,13 @@ int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
+ 	 * have to restore it _before_ altering the mount
+ 	 * tree (i.e. -- mnt_ns restoring)
+ 	 */
++	
+ 
+ 	id = ns_per_id ? item->ids->uts_ns_id : pid;
+-	if ((clone_flags & CLONE_NEWUTS) && prepare_utsns(id))
++	if ((clone_flags & CLONE_NEWUTS) && prepare_utsns(id, inherit_fd_lookup_id(EXTERNAL_UTS_NS_FD_KEY)))
+ 		goto out;
+ 	id = ns_per_id ? item->ids->ipc_ns_id : pid;
+-	if ((clone_flags & CLONE_NEWIPC) && prepare_ipc_ns(id))
++	if ((clone_flags & CLONE_NEWIPC) && prepare_ipc_ns(id, inherit_fd_lookup_id(EXTERNAL_IPC_NS_FD_KEY)))
+ 		goto out;
+ 
+ 	if (prepare_net_namespaces())
+@@ -1766,9 +1766,9 @@ int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
+ 	 * This one is special -- there can be several mount
+ 	 * namespaces and prepare_mnt_ns handles them itself.
+ 	 */
+-	if (prepare_mnt_ns())
+-		goto out;
+ 
++	if (prepare_mnt_ns(inherit_fd_lookup_id(EXTERNAL_MNT_NS_FD_KEY)))
++		goto out;
+ 	ret = 0;
+ out:
+ 	if (restore_sigmask(&sig_mask) < 0)
+diff --git a/criu/net.c b/criu/net.c
+index 4f1f7d47f..4df402220 100644
+--- a/criu/net.c
++++ b/criu/net.c
+@@ -2831,8 +2831,8 @@ int netns_keep_nsfd(void)
+ static int iptables_restore(bool ipv6, char *buf, int size)
+ {
+ 	int pfd[2], ret = -1;
+-	char *cmd4[] = {"iptables-restore", "-w", "--noflush", NULL};
+-	char *cmd6[] = {"ip6tables-restore", "-w", "--noflush", NULL};
++	char *cmd4[] = {"iptables-restore","--noflush", NULL};
++	char *cmd6[] = {"ip6tables-restore", "--noflush", NULL};
+ 	char **cmd = ipv6 ? cmd6 : cmd4;
+ 
+ 	if (pipe(pfd) < 0) {
+diff --git a/criu/pagemap.c b/criu/pagemap.c
+index 33bce10e3..a6c9cedbb 100644
+--- a/criu/pagemap.c
++++ b/criu/pagemap.c
+@@ -307,12 +307,13 @@ static int enqueue_async_iov(struct page_read *pr, void *buf,
+ int pagemap_render_iovec(struct list_head *from, struct task_restore_args *ta)
+ {
+ 	struct page_read_iov *piov;
++	struct restore_vma_io *rio;
++	struct iovs_offset *offsets;
+ 
+ 	ta->vma_ios = (struct restore_vma_io *)rst_mem_align_cpos(RM_PRIVATE);
+ 	ta->vma_ios_n = 0;
+ 
+ 	list_for_each_entry(piov, from, l) {
+-		struct restore_vma_io *rio;
+ 
+ 		pr_info("`- render %d iovs (%p:%zd...)\n", piov->nr,
+ 				piov->to[0].iov_base, piov->to[0].iov_len);
+@@ -326,8 +327,22 @@ int pagemap_render_iovec(struct list_head *from, struct task_restore_args *ta)
+ 
+ 		ta->vma_ios_n++;
+ 	}
+-
+-	return 0;
++    ta->offsets = (struct iovs_offset *)rst_mem_align_cpos(RM_PRIVATE);
++
++    list_for_each_entry(piov, from, l) {
++        int piov_len = piov->nr;
++        offsets = rst_mem_alloc(OFFSET_SIZE(piov_len), RM_PRIVATE);
++        if (!offsets)
++            return -1;
++        offsets->len = piov_len;
++        uint64_t off = piov->from;
++        for (int i = 0; i < piov_len; i++) {
++            offsets->offset[i] = off;
++            off += piov->to[i].iov_len;
++        }
++    }
++
++    return 0;
+ }
+ 
+ int pagemap_enqueue_iovec(struct page_read *pr, void *buf,
+diff --git a/criu/pie/restorer.c b/criu/pie/restorer.c
+index b3d7e2b5c..556f7efdb 100644
+--- a/criu/pie/restorer.c
++++ b/criu/pie/restorer.c
+@@ -1380,6 +1380,16 @@ int cleanup_current_inotify_events(struct task_restore_args *task_args)
+ 	return 0;
+ }
+ 
++static VmaEntry *look_up_vma(VmaEntry *vmas, int vmas_n, uint64_t start) {
++    for (int i = vmas_n - 1; i >= 0; i--) {
++        VmaEntry *vma = vmas + i;
++        if ((uint64_t)start >= vma->start) {
++            return vma;
++        }
++    }
++    return NULL;
++}
++
+ /*
+  * The main routine to restore task via sigreturn.
+  * This one is very special, we never return there
+@@ -1556,53 +1566,55 @@ long __export_restore_task(struct task_restore_args *args)
+ 	 * Now read the contents (if any)
+ 	 */
+ 
+-	rio = args->vma_ios;
+-	for (i = 0; i < args->vma_ios_n; i++) {
+-		struct iovec *iovs = rio->iovs;
+-		int nr = rio->nr_iovs;
+-		ssize_t r;
+-
+-		while (nr) {
+-			pr_debug("Preadv %lx:%d... (%d iovs)\n",
+-					(unsigned long)iovs->iov_base,
+-					(int)iovs->iov_len, nr);
+-			r = sys_preadv(args->vma_ios_fd, iovs, nr, rio->off);
+-			if (r < 0) {
+-				pr_err("Can't read pages data (%d)\n", (int)r);
+-				goto core_restore_end;
+-			}
+-
+-			pr_debug("`- returned %ld\n", (long)r);
+-			/* If the file is open for writing, then it means we should punch holes
+-			 * in it. */
+-			if (r > 0 && args->auto_dedup) {
+-				int fr = sys_fallocate(args->vma_ios_fd, FALLOC_FL_KEEP_SIZE|FALLOC_FL_PUNCH_HOLE,
+-					rio->off, r);
+-				if (fr < 0) {
+-					pr_debug("Failed to punch holes with fallocate: %d\n", fr);
+-				}
+-			}
+-			rio->off += r;
+-			/* Advance the iovecs */
+-			do {
+-				if (iovs->iov_len <= r) {
+-					pr_debug("   `- skip pagemap\n");
+-					r -= iovs->iov_len;
+-					iovs++;
+-					nr--;
+-					continue;
+-				}
+-
+-				iovs->iov_base += r;
+-				iovs->iov_len -= r;
+-				break;
+-			} while (nr > 0);
+-		}
+-
+-		rio = ((void *)rio) + RIO_SIZE(rio->nr_iovs);
+-	}
+-
+-	if (args->vma_ios_fd != -1)
++    rio = args->vma_ios;
++    struct iovs_offset *offsets_arr = args->offsets;
++	int start_index=0;
++    for (i = 0; i < args->vma_ios_n; i++) {
++        struct iovec *iovs = rio->iovs;
++        int nr = rio->nr_iovs;
++        ssize_t r;
++
++        for (int j = 0; j < nr; j++) {
++            void *p = (void *)iovs[j].iov_base;
++            uint64_t iov_end = (uint64_t)(iovs[j].iov_base) + iovs[j].iov_len;
++            pr_info("iov from %lx to %lx\n", (uint64_t)p, iov_end);
++
++            while ((uint64_t)p < iov_end) {
++                VmaEntry *vma =
++                    look_up_vma(args->vmas, args->vmas_n, (uint64_t)p);
++                BUG_ON(vma == NULL);
++                pr_info("find vma from %lx to %lx\n", vma->start, vma->end);
++                uint64_t io_size = min(vma->end, iov_end) - (uint64_t)p;
++                ssize_t local_r;
++                if (!vma_entry_is(vma, VMA_AREA_REGULAR) ||
++                    (vma->flags & MAP_GROWSDOWN)) {
++                    struct iovec iov_temp = {
++                        .iov_base = p,
++                        .iov_len = io_size,
++                    };
++                    local_r = sys_preadv(args->vma_ios_fd, &iov_temp, 1,
++                                         offsets_arr->offset[j]);
++                } else {
++                    sys_munmap(p, io_size);
++                    uint64_t ret = sys_mmap(
++                        p, io_size, vma->prot | PROT_WRITE,
++                        (vma->flags & ~MAP_ANONYMOUS) | MAP_FIXED | MAP_PRIVATE,
++                        args->vma_ios_fd, offsets_arr->offset[j]);
++                    pr_info("mmap %lx size %ld ret %lx\n", (uint64_t)p, io_size,
++                            ret);
++                    BUG_ON(ret != (uint64_t)p);
++                    local_r = io_size;
++                }
++                p += local_r;
++                offsets_arr->offset[j] += local_r;
++            }
++        }
++
++        rio = ((void *)rio) + RIO_SIZE(rio->nr_iovs);
++        offsets_arr = ((void *)offsets_arr) + OFFSET_SIZE(rio->nr_iovs);
++    }
++
++    if (args->vma_ios_fd != -1)
+ 		sys_close(args->vma_ios_fd);
+ 
+ 	/*
+diff --git a/criu/pie/util.c b/criu/pie/util.c
+index 4945483f6..093221a0b 100644
+--- a/criu/pie/util.c
++++ b/criu/pie/util.c
+@@ -33,17 +33,17 @@ int open_detach_mount(char *dir)
+ 	if (fd < 0)
+ 		__pr_perror("Can't open directory %s: %d", dir, fd);
+ 
+-	ret = __sys(umount2)(dir, MNT_DETACH);
+-	if (ret) {
+-		__pr_perror("Can't detach mount %s: %d", dir, ret);
+-		goto err_close;
+-	}
+-
+-	ret = __sys(rmdir)(dir);
+-	if (ret) {
+-		__pr_perror("Can't remove tmp dir %s: %d", dir, ret);
+-		goto err_close;
+-	}
++	// ret = __sys(umount2)(dir, MNT_DETACH);
++	// if (ret) {
++	// 	__pr_perror("Can't detach mount %s: %d", dir, ret);
++	// 	goto err_close;
++	// }
++
++	// ret = __sys(rmdir)(dir);
++	// if (ret) {
++	// 	__pr_perror("Can't remove tmp dir %s: %d", dir, ret);
++	// 	goto err_close;
++	// }
+ 
+ 	return fd;
+ 
+diff --git a/criu/stats.c b/criu/stats.c
+index 891c37800..d3a5d47b0 100644
+--- a/criu/stats.c
++++ b/criu/stats.c
+@@ -157,7 +157,6 @@ void write_stats(int what)
+ 	char *name;
+ 	struct cr_img *img;
+ 
+-	pr_info("Writing stats\n");
+ 	if (what == DUMP_STATS) {
+ 		stats.dump = &ds_entry;
+ 
+diff --git a/criu/uts_ns.c b/criu/uts_ns.c
+index 1ea075cbd..45e5730c1 100644
+--- a/criu/uts_ns.c
++++ b/criu/uts_ns.c
+@@ -11,6 +11,7 @@
+ 
+ #include "protobuf.h"
+ #include "images/utsns.pb-c.h"
++#include "cr_options.h"
+ 
+ int dump_uts_ns(int ns_id)
+ {
+@@ -38,34 +39,40 @@ err:
+ 	return ret < 0 ? -1 : 0;
+ }
+ 
+-int prepare_utsns(int pid)
+-{
+-	int ret;
+-	struct cr_img *img;
+-	UtsnsEntry *ue;
+-	struct sysctl_req req[] = {
+-		{ "kernel/hostname" },
+-		{ "kernel/domainname" },
+-	};
++int prepare_utsns(int pid, int ns_fd) {
+ 
+-	img = open_image(CR_FD_UTSNS, O_RSTR, pid);
+-	if (!img)
+-		return -1;
++    int ret;
++    pr_info("Restoring UTS namespace with fd %d\n", ns_fd);
++    if (ns_fd != -1) {
++        ret = setns(ns_fd, CLONE_NEWUTS);
++        return ret;
++    }
++
++    struct cr_img *img;
++    UtsnsEntry *ue;
++    struct sysctl_req req[] = {
++        {"kernel/hostname"},
++        {"kernel/domainname"},
++    };
+ 
+-	ret = pb_read_one(img, &ue, PB_UTSNS);
+-	if (ret < 0)
+-		goto out;
++    img = open_image(CR_FD_UTSNS, O_RSTR, pid);
++    if (!img)
++        return -1;
+ 
+-	req[0].arg = ue->nodename;
+-	req[0].type = CTL_STR(strlen(ue->nodename));
+-	req[1].arg = ue->domainname;
+-	req[1].type = CTL_STR(strlen(ue->domainname));
++    ret = pb_read_one(img, &ue, PB_UTSNS);
++    if (ret < 0)
++        goto out;
+ 
+-	ret = sysctl_op(req, ARRAY_SIZE(req), CTL_WRITE, CLONE_NEWUTS);
+-	utsns_entry__free_unpacked(ue, NULL);
++    req[0].arg = ue->nodename;
++    req[0].type = CTL_STR(strlen(ue->nodename));
++    req[1].arg = ue->domainname;
++    req[1].type = CTL_STR(strlen(ue->domainname));
++
++    ret = sysctl_op(req, ARRAY_SIZE(req), CTL_WRITE, CLONE_NEWUTS);
++    utsns_entry__free_unpacked(ue, NULL);
+ out:
+-	close_image(img);
+-	return ret;
++    close_image(img);
++    return ret;
+ }
+ 
+ struct ns_desc uts_ns_desc = NS_DESC_ENTRY(CLONE_NEWUTS, "uts");
